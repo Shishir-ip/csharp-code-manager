@@ -3,26 +3,11 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/supabase/client';
-import {
-  FolderPlus, FilePlus, Save, Trash2, Folder, FileCode,
-  LogOut, MousePointerClick, Check, X, ChevronRight, Shield
-} from 'lucide-react';
+import { FolderPlus, FilePlus, Save, Trash2, Folder, FileCode, LogOut, MousePointerClick, Shield, ArrowLeft } from 'lucide-react';
+import Link from 'next/link';
 
-type FolderItem = {
-  id: string;
-  name: string;
-  parent_id: string | null;
-};
-
-type FileItem = {
-  id: string;
-  name: string;
-  folder_id: string | null;
-  topic: string | null;
-  content: string;
-  simulation_output: string | null;
-  simulation_input: string | null;
-};
+type FolderItem = { id: string; name: string; parent_id: string | null; };
+type FileItem = { id: string; name: string; folder_id: string | null; topic: string | null; content: string; simulation_output: string | null; simulation_input: string | null; };
 
 export default function AdminPage() {
   const router = useRouter();
@@ -35,7 +20,6 @@ export default function AdminPage() {
 
   const [folderName, setFolderName] = useState('');
   const [parentFolder, setParentFolder] = useState('');
-
   const [fileName, setFileName] = useState('');
   const [fileFolder, setFileFolder] = useState('');
   const [fileTopic, setFileTopic] = useState('');
@@ -45,18 +29,16 @@ export default function AdminPage() {
   const [useSimulation, setUseSimulation] = useState(true);
 
   useEffect(() => {
-    checkAuth();
-    loadData();
+    supabase.auth.getUser().then(({ data }) => {
+      if (!data.user) {
+        // Show login form instead of redirecting
+        setUser(null);
+      } else {
+        setUser(data.user);
+        loadData();
+      }
+    });
   }, []);
-
-  async function checkAuth() {
-    const { data } = await supabase.auth.getUser();
-    if (!data.user) {
-      router.push('/');
-      return;
-    }
-    setUser(data.user);
-  }
 
   async function loadData() {
     const [{ data: fData }, { data: fiData }] = await Promise.all([
@@ -70,6 +52,36 @@ export default function AdminPage() {
   function showMessage(msg: string) {
     setMessage(msg);
     setTimeout(() => setMessage(''), 3000);
+  }
+
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+    const form = e.target as HTMLFormElement;
+    const email = (form.elements.namedItem('email') as HTMLInputElement).value;
+    const password = (form.elements.namedItem('password') as HTMLInputElement).value;
+    
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      // Try sign up instead
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password });
+      if (signUpError) {
+        showMessage('Error: ' + signUpError.message);
+        return;
+      }
+      setUser(signUpData.user);
+      showMessage('Account created! Welcome admin.');
+    } else {
+      setUser(data.user);
+      showMessage('Welcome back!');
+    }
+    loadData();
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    setUser(null);
+    setFolders([]);
+    setFiles([]);
   }
 
   async function createFolder() {
@@ -125,25 +137,71 @@ export default function AdminPage() {
     loadData();
   }
 
-  async function handleLogout() {
-    await supabase.auth.signOut();
-    router.push('/');
-  }
-
+  // LOGIN SCREEN
   if (!user) {
     return (
-      <div className="min-h-screen bg-dark-900 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-accent-blue border-t-transparent rounded-full animate-spin" />
-          <p className="text-dark-400 text-sm">Checking login...</p>
-        </div>
+      <div className="min-h-screen bg-dark-900 flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-sm bg-dark-800 rounded-2xl border border-dark-500/50 p-8 shadow-2xl"
+        >
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent-blue to-accent-purple flex items-center justify-center">
+              <Shield size={20} className="text-white" />
+            </div>
+            <div>
+              <h1 className="text-lg font-bold text-white">Admin Login</h1>
+              <p className="text-xs text-dark-400">Sign in to manage files</p>
+            </div>
+          </div>
+          
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-dark-300 mb-1.5">Email</label>
+              <input
+                name="email"
+                type="email"
+                required
+                placeholder="your@email.com"
+                className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm text-dark-100 placeholder-dark-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-dark-300 mb-1.5">Password</label>
+              <input
+                name="password"
+                type="password"
+                required
+                placeholder="••••••••"
+                className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm text-dark-100 placeholder-dark-500"
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full py-2.5 bg-accent-blue hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-all"
+            >
+              Sign In / Sign Up
+            </button>
+          </form>
+          
+          <p className="text-[10px] text-dark-500 mt-4 text-center">
+            First time? Enter email + password to create account automatically.
+          </p>
+          
+          <Link href="/" className="block mt-6 text-center">
+            <span className="text-xs text-dark-400 hover:text-accent-blue transition-colors flex items-center justify-center gap-1">
+              <ArrowLeft size={12} /> Back to Home
+            </span>
+          </Link>
+        </motion.div>
       </div>
     );
   }
 
+  // ADMIN DASHBOARD
   return (
     <div className="min-h-screen bg-dark-900">
-      {/* Header */}
       <header className="sticky top-0 z-40 glass border-b border-dark-500/50">
         <div className="max-w-5xl mx-auto px-4 md:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -152,21 +210,28 @@ export default function AdminPage() {
             </div>
             <div>
               <h1 className="text-sm font-bold text-white">Admin Panel</h1>
-              <p className="text-[10px] text-dark-300">Manage C# lab files and folders</p>
+              <p className="text-[10px] text-dark-300">Manage C# lab files</p>
             </div>
           </div>
-          <button onClick={handleLogout} className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg bg-dark-700 hover:bg-dark-600 border border-dark-500/50 text-dark-200 transition-all">
-            <LogOut size={14} /> Logout
-          </button>
+          <div className="flex items-center gap-2">
+            <Link href="/">
+              <button className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg bg-dark-700 hover:bg-dark-600 border border-dark-500/50 text-dark-200 transition-all">
+                <ArrowLeft size={14} /> Home
+              </button>
+            </Link>
+            <button onClick={handleLogout} className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg bg-dark-700 hover:bg-dark-600 border border-dark-500/50 text-dark-200 transition-all">
+              <LogOut size={14} /> Logout
+            </button>
+          </div>
         </div>
       </header>
 
       <AnimatePresence>
         {message && (
           <motion.div
-            initial={{ opacity: 0, y: -20, x: '50%' }}
-            animate={{ opacity: 1, y: 0, x: '50%' }}
-            exit={{ opacity: 0, y: -20, x: '50%' }}
+            initial={{ opacity: 0, y: -20, x: '-50%' }}
+            animate={{ opacity: 1, y: 0, x: '-50%' }}
+            exit={{ opacity: 0, y: -20, x: '-50%' }}
             className="fixed top-4 left-1/2 bg-accent-green/90 text-white px-4 py-2 rounded-lg shadow-lg z-50 text-xs font-medium backdrop-blur-sm"
           >
             {message}
@@ -175,140 +240,76 @@ export default function AdminPage() {
       </AnimatePresence>
 
       <div className="max-w-5xl mx-auto px-4 md:px-6 py-6">
-        {/* Tabs */}
         <div className="flex gap-1 p-1 bg-dark-700/50 rounded-xl border border-dark-500/30 w-fit mb-6">
           <button
             onClick={() => setActiveTab('files')}
-            className={`px-4 py-2 rounded-lg text-xs font-medium transition-all flex items-center gap-2 ${
-              activeTab === 'files'
-                ? 'bg-dark-600 text-white shadow-sm'
-                : 'text-dark-400 hover:text-dark-200'
-            }`}
+            className={`px-4 py-2 rounded-lg text-xs font-medium transition-all flex items-center gap-2 ${activeTab === 'files' ? 'bg-dark-600 text-white shadow-sm' : 'text-dark-400 hover:text-dark-200'}`}
           >
             <FilePlus size={14} /> Add Files
           </button>
           <button
             onClick={() => setActiveTab('folders')}
-            className={`px-4 py-2 rounded-lg text-xs font-medium transition-all flex items-center gap-2 ${
-              activeTab === 'folders'
-                ? 'bg-dark-600 text-white shadow-sm'
-                : 'text-dark-400 hover:text-dark-200'
-            }`}
+            className={`px-4 py-2 rounded-lg text-xs font-medium transition-all flex items-center gap-2 ${activeTab === 'folders' ? 'bg-dark-600 text-white shadow-sm' : 'text-dark-400 hover:text-dark-200'}`}
           >
             <FolderPlus size={14} /> Add Folders
           </button>
         </div>
 
-        {/* FILES TAB */}
         {activeTab === 'files' && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-            {/* Create File Form */}
             <div className="bg-dark-800 rounded-xl border border-dark-500/30 p-6">
               <h2 className="text-sm font-bold text-white mb-5 flex items-center gap-2">
                 <FileCode size={16} className="text-accent-blue" /> Add New C# File
               </h2>
-
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className="block text-xs font-medium text-dark-300 mb-1.5">File Name</label>
-                  <input
-                    type="text"
-                    value={fileName}
-                    onChange={(e) => setFileName(e.target.value)}
-                    placeholder="e.g. HelloWorld"
-                    className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm text-dark-100 placeholder-dark-500"
-                  />
+                  <input type="text" value={fileName} onChange={(e) => setFileName(e.target.value)} placeholder="e.g. HelloWorld" className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm text-dark-100 placeholder-dark-500" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-dark-300 mb-1.5">Folder</label>
-                  <select
-                    value={fileFolder}
-                    onChange={(e) => setFileFolder(e.target.value)}
-                    className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm text-dark-100"
-                  >
+                  <select value={fileFolder} onChange={(e) => setFileFolder(e.target.value)} className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm text-dark-100">
                     <option value="" className="bg-dark-800">Select a folder...</option>
-                    {folders.map((f) => (
-                      <option key={f.id} value={f.id} className="bg-dark-800">{f.name}</option>
-                    ))}
+                    {folders.map((f) => (<option key={f.id} value={f.id} className="bg-dark-800">{f.name}</option>))}
                   </select>
                 </div>
               </div>
-
               <div className="mb-4">
                 <label className="block text-xs font-medium text-dark-300 mb-1.5">Topic / Question</label>
-                <input
-                  type="text"
-                  value={fileTopic}
-                  onChange={(e) => setFileTopic(e.target.value)}
-                  placeholder="e.g. Lab 1: Calculate factorial of a number"
-                  className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm text-dark-100 placeholder-dark-500"
-                />
+                <input type="text" value={fileTopic} onChange={(e) => setFileTopic(e.target.value)} placeholder="e.g. Lab 1: Calculate factorial" className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm text-dark-100 placeholder-dark-500" />
               </div>
-
               <div className="mb-4">
                 <label className="block text-xs font-medium text-dark-300 mb-1.5">C# Code</label>
-                <textarea
-                  value={fileContent}
-                  onChange={(e) => setFileContent(e.target.value)}
-                  placeholder="using System;&#10;&#10;class Program {&#10;  static void Main() {&#10;    Console.WriteLine(&quot;Hello World&quot;);&#10;  }&#10;}"
-                  className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm font-mono text-dark-100 placeholder-dark-500 min-h-[200px] resize-y"
-                />
+                <textarea value={fileContent} onChange={(e) => setFileContent(e.target.value)} placeholder="using System; class Program { static void Main() { Console.WriteLine(&quot;Hello&quot;); } }" className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm font-mono text-dark-100 placeholder-dark-500 min-h-[200px] resize-y" />
               </div>
 
-              {/* Simulation Toggle */}
               <div className="mb-5 p-4 rounded-xl bg-purple-500/5 border border-purple-500/20">
                 <div className="flex items-center gap-2 mb-2">
-                  <input
-                    type="checkbox"
-                    id="simToggle"
-                    checked={useSimulation}
-                    onChange={(e) => setUseSimulation(e.target.checked)}
-                    className="w-4 h-4 rounded border-dark-500 bg-dark-900 text-purple-500 focus:ring-purple-500/20"
-                  />
+                  <input type="checkbox" id="simToggle" checked={useSimulation} onChange={(e) => setUseSimulation(e.target.checked)} className="w-4 h-4 rounded border-dark-500 bg-dark-900 text-purple-500" />
                   <label htmlFor="simToggle" className="text-xs font-medium text-purple-300 flex items-center gap-2 cursor-pointer">
                     <MousePointerClick size={14} /> Enable Simulation Mode (No API needed)
                   </label>
                 </div>
-                <p className="text-[11px] text-purple-400/60 mb-3">
-                  Paste the expected output here. Users will see it in a terminal popup without needing any external API.
-                </p>
-
+                <p className="text-[11px] text-purple-400/60 mb-3">Paste the expected output here. Users will see it in a terminal popup without needing any external API.</p>
                 {useSimulation && (
                   <div className="space-y-3">
                     <div>
                       <label className="block text-[11px] font-medium text-purple-400/80 mb-1">Expected Input (optional, one per line)</label>
-                      <textarea
-                        value={simInput}
-                        onChange={(e) => setSimInput(e.target.value)}
-                        placeholder="5&#10;John"
-                        className="w-full px-3 py-2 bg-dark-900 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-400 text-xs font-mono text-dark-100 placeholder-dark-500 resize-y"
-                        rows={2}
-                      />
+                      <textarea value={simInput} onChange={(e) => setSimInput(e.target.value)} placeholder="5&#10;John" className="w-full px-3 py-2 bg-dark-900 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-400 text-xs font-mono text-dark-100 placeholder-dark-500 resize-y" rows={2} />
                     </div>
                     <div>
                       <label className="block text-[11px] font-medium text-purple-400/80 mb-1">Expected Output</label>
-                      <textarea
-                        value={simOutput}
-                        onChange={(e) => setSimOutput(e.target.value)}
-                        placeholder="Enter a number: 5&#10;Factorial is: 120"
-                        className="w-full px-3 py-2 bg-dark-900 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-400 text-xs font-mono text-dark-100 placeholder-dark-500 resize-y"
-                        rows={4}
-                      />
+                      <textarea value={simOutput} onChange={(e) => setSimOutput(e.target.value)} placeholder="Enter a number: 5&#10;Factorial is: 120" className="w-full px-3 py-2 bg-dark-900 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-400 text-xs font-mono text-dark-100 placeholder-dark-500 resize-y" rows={4} />
                     </div>
                   </div>
                 )}
               </div>
 
-              <button
-                onClick={createFile}
-                disabled={loading}
-                className="flex items-center gap-2 px-4 py-2 bg-accent-blue hover:bg-blue-500 disabled:bg-blue-500/30 text-white rounded-lg text-xs font-medium transition-all"
-              >
+              <button onClick={createFile} disabled={loading} className="flex items-center gap-2 px-4 py-2 bg-accent-blue hover:bg-blue-500 disabled:bg-blue-500/30 text-white rounded-lg text-xs font-medium transition-all">
                 <Save size={14} /> {loading ? 'Saving...' : 'Save File'}
               </button>
             </div>
 
-            {/* Existing Files */}
             <div className="bg-dark-800 rounded-xl border border-dark-500/30 p-6">
               <h2 className="text-sm font-bold text-white mb-4">Existing Files ({files.length})</h2>
               <div className="space-y-1">
@@ -321,9 +322,7 @@ export default function AdminPage() {
                         <p className="text-[10px] text-dark-500 truncate">{f.topic || 'No topic'}</p>
                       </div>
                       {f.simulation_output && (
-                        <span className="text-[10px] bg-purple-500/15 text-purple-400 px-2 py-0.5 rounded-full font-medium flex-shrink-0">
-                          Sim
-                        </span>
+                        <span className="text-[10px] bg-purple-500/15 text-purple-400 px-2 py-0.5 rounded-full font-medium flex-shrink-0">Sim</span>
                       )}
                     </div>
                     <button onClick={() => deleteFile(f.id)} className="p-1.5 text-dark-500 hover:text-accent-red hover:bg-red-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100">
@@ -337,7 +336,6 @@ export default function AdminPage() {
           </motion.div>
         )}
 
-        {/* FOLDERS TAB */}
         {activeTab === 'folders' && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
             <div className="bg-dark-800 rounded-xl border border-dark-500/30 p-6">
@@ -347,33 +345,17 @@ export default function AdminPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className="block text-xs font-medium text-dark-300 mb-1.5">Folder Name</label>
-                  <input
-                    type="text"
-                    value={folderName}
-                    onChange={(e) => setFolderName(e.target.value)}
-                    placeholder="e.g. Week 1 - Basics"
-                    className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm text-dark-100 placeholder-dark-500"
-                  />
+                  <input type="text" value={folderName} onChange={(e) => setFolderName(e.target.value)} placeholder="e.g. Week 1 - Basics" className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm text-dark-100 placeholder-dark-500" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-dark-300 mb-1.5">Parent Folder (Optional)</label>
-                  <select
-                    value={parentFolder}
-                    onChange={(e) => setParentFolder(e.target.value)}
-                    className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm text-dark-100"
-                  >
+                  <select value={parentFolder} onChange={(e) => setParentFolder(e.target.value)} className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm text-dark-100">
                     <option value="" className="bg-dark-800">None (Root)</option>
-                    {folders.map((f) => (
-                      <option key={f.id} value={f.id} className="bg-dark-800">{f.name}</option>
-                    ))}
+                    {folders.map((f) => (<option key={f.id} value={f.id} className="bg-dark-800">{f.name}</option>))}
                   </select>
                 </div>
               </div>
-              <button
-                onClick={createFolder}
-                disabled={loading}
-                className="flex items-center gap-2 px-4 py-2 bg-accent-blue hover:bg-blue-500 disabled:bg-blue-500/30 text-white rounded-lg text-xs font-medium transition-all"
-              >
+              <button onClick={createFolder} disabled={loading} className="flex items-center gap-2 px-4 py-2 bg-accent-blue hover:bg-blue-500 disabled:bg-blue-500/30 text-white rounded-lg text-xs font-medium transition-all">
                 <Save size={14} /> {loading ? 'Saving...' : 'Create Folder'}
               </button>
             </div>
