@@ -58,10 +58,10 @@ export default function FilePage() {
     setShowTerm(true);
     setOutput('');
     const fullOutput = file.simulation_output;
-    let current = '> Initializing simulation...
+    let current = `> Initializing simulation...
 > Running C# program...
 
-';
+`;
     setOutput(current);
     let i = 0;
     const interval = setInterval(() => {
@@ -71,9 +71,9 @@ export default function FilePage() {
         i++;
       } else {
         clearInterval(interval);
-        setOutput(current + '
+        setOutput(current + `
 
-> Simulation complete. ✓');
+> Simulation complete.`);
       }
     }, 3);
   };
@@ -82,9 +82,9 @@ export default function FilePage() {
     if (!file) return;
     setRunning(true);
     setShowTerm(true);
-    setOutput('> Compiling C# code...
+    setOutput(`> Compiling C# code...
 > Using .NET 9 compiler...
-');
+`);
 
     try {
       const res = await fetch('/api/run', {
@@ -107,8 +107,8 @@ ${data.error}`;
       }
       setOutput(prev => prev + result);
     } catch (e) {
-      setOutput('> Failed to execute code.
-> Tip: Switch to Simulation Mode if API is unavailable.');
+      setOutput(`> Failed to execute code.
+> Tip: Switch to Simulation Mode if API is unavailable.`);
     } finally {
       setRunning(false);
     }
@@ -306,7 +306,7 @@ ${data.error}`;
                     value={stdin}
                     onChange={(e) => setStdin(e.target.value)}
                     className="w-full bg-dark-900 border border-dark-500/50 rounded-lg px-3 py-2 text-dark-100 text-xs font-mono focus:outline-none focus:border-accent-blue resize-none"
-                    placeholder="Enter inputs here...&#10;e.g.&#10;5&#10;John"
+                    placeholder="Enter inputs here..."
                     rows={3}
                   />
                 </div>
@@ -323,7 +323,7 @@ ${data.error}`;
               {/* Terminal Footer */}
               <div className="bg-dark-700 px-4 py-2.5 border-t border-dark-500/30 flex justify-between items-center">
                 <span className="text-[10px] text-dark-400">
-                  {mode === 'simulation' ? 'Pre-defined output • No API call' : 'Powered by OnlineCompiler.io'}
+                  {mode === 'simulation' ? 'Pre-defined output' : 'Powered by OnlineCompiler.io'}
                 </span>
                 <div className="flex gap-2">
                   <button
