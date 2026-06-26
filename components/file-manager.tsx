@@ -88,7 +88,7 @@ export default function FileManager({ folderId }: { folderId?: string }) {
             </div>
             <div>
               <h1 className="text-sm font-bold text-white tracking-tight">C# Lab Manager By Shohidul Islam </h1>
-              <p className="text-[10px] text-dark-300">Class Practices & Lab Tasks <br> ID: 24-59248-3 </p>
+              <p className="text-[10px] text-dark-300">Class Practices & Lab Tasks ID: 24-59248-3 </p>
             </div>
           </div>
           <Link href="/admin">
