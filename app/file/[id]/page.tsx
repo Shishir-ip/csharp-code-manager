@@ -150,9 +150,49 @@ export default function FilePage() {
     setRunning(true);
 
     // Continue with accumulated inputs
-    await runAIStep(newInputs);
-  };
+    try {
+      const res = await fetch('/api/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          code: file?.content || '', 
+          inputs: newInputs,
+        }),
+      });
+      
+      const data = await res.json();
 
+      if (data.error) {
+        setOutput(prev => prev + `\n[ERROR] ${data.error}`);
+        setRunning(false);
+        return;
+      }
+
+      // FIX: Remove duplicate prompt line if AI repeated it
+      let aiText = data.output || '';
+      const lastLine = output.trim().split('\n').pop() || '';
+      
+      // If AI output starts with the same prompt we already showed, remove it
+      const aiLines = aiText.split('\n');
+      if (aiLines.length > 0 && aiLines[0].trim() === lastLine.trim()) {
+        aiLines.shift(); // Remove first line (duplicate prompt)
+        aiText = aiLines.join('\n');
+      }
+
+      setOutput(prev => prev + aiText);
+
+      if (data.hasMoreInput) {
+        setIsWaitingInput(true);
+        setRunning(false);
+      } else {
+        setOutput(prev => prev + '\n\n> Program finished.');
+        setRunning(false);
+      }
+    } catch (e) {
+      setOutput(prev => prev + '\n> Execution error.');
+      setRunning(false);
+    }
+};
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') submitInput();
   };
