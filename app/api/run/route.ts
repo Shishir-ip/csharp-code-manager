@@ -43,7 +43,7 @@ Respond with ONLY the raw console output. No preamble. No postscript.`;
         'X-Title': 'C# Lab Manager',
       },
       body: JSON.stringify({
-        model: 'deepseek/deepseek-r1:free',
+        model: 'deepseek/deepseek-r1',
         messages,
         max_tokens: 2000,
         temperature: 0.1,
