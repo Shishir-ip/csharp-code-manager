@@ -17,6 +17,11 @@ type FileData = {
   simulation_output: string | null;
 };
 
+type ConversationMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
 export default function FilePage() {
   const { id } = useParams();
   const [file, setFile] = useState<FileData | null>(null);
@@ -28,9 +33,8 @@ export default function FilePage() {
   const [copied, setCopied] = useState(false);
   const [mode, setMode] = useState<'simulation' | 'ai'>('simulation');
   const [allInputs, setAllInputs] = useState<string[]>([]);
+  const [conversation, setConversation] = useState<ConversationMessage[]>([]);
   const outputRef = useRef<HTMLDivElement>(null);
-
-  // Ref for run cancellation
   const runIdRef = useRef(0);
 
   useEffect(() => {
@@ -72,6 +76,7 @@ export default function FilePage() {
     setAllInputs([]);
     setIsWaitingInput(false);
     setRunning(false);
+    setConversation([]);
 
     const fullOutput = file.simulation_output;
     let current = `> Initializing simulation...\n> Running C# program...\n\n`;
@@ -89,7 +94,7 @@ export default function FilePage() {
     }, 3);
   };
 
-  // AI MODE — Step by step, one API call per input
+  // AI MODE — Step by step with conversation context
   const startAI = async () => {
     if (!file) return;
 
@@ -104,14 +109,15 @@ export default function FilePage() {
     setAllInputs([]);
     setIsWaitingInput(false);
     setUserInput('');
+    setConversation([]);
 
     setOutput(`> Compiling C# code...\n> Using AI Compiler (OpenRouter)...\n\n`);
 
-    // Step 1: Run with no inputs
-    await runAIStep([], currentRunId);
+    // Step 1: Run with no inputs and no conversation
+    await runAIStep([], [], currentRunId);
   };
 
-  const runAIStep = async (currentInputs: string[], runId: number) => {
+  const runAIStep = async (currentInputs: string[], currentConversation: ConversationMessage[], runId: number) => {
     if (runId !== runIdRef.current) return;
 
     try {
@@ -121,6 +127,7 @@ export default function FilePage() {
         body: JSON.stringify({
           code: file?.content || '',
           inputs: currentInputs,
+          conversation: currentConversation,
         }),
       });
 
@@ -137,16 +144,23 @@ export default function FilePage() {
 
       const aiText = data.output || '';
 
-      // Build the display output: keep system messages, replace AI part
-      const systemHeader = `> Compiling C# code...\n> Using AI Compiler (OpenRouter)...\n\n`;
-      setOutput(systemHeader + aiText);
+      // Append to conversation
+      const newAssistantMsg: ConversationMessage = { role: 'assistant', content: aiText };
+      const updatedConversation = [...currentConversation, newAssistantMsg];
+      setConversation(updatedConversation);
+
+      // Append to terminal output
+      const outputToAdd = aiText ? (aiText + '\n') : '';
+      setOutput(prev => {
+        const systemHeader = `> Compiling C# code...\n> Using AI Compiler (OpenRouter)...\n\n`;
+        return systemHeader + outputToAdd;
+      });
 
       if (data.hasMoreInput) {
         setIsWaitingInput(true);
         setRunning(false);
       } else {
-        // Program finished
-        setOutput(prev => prev + '\n\n> Program finished.');
+        setOutput(prev => prev + '\n> Program finished.');
         setRunning(false);
         setIsWaitingInput(false);
       }
@@ -167,8 +181,13 @@ export default function FilePage() {
     setIsWaitingInput(false);
     setRunning(true);
 
-    // Continue with accumulated inputs
-    await runAIStep(newInputs, runIdRef.current);
+    // Add user input to conversation
+    const newUserMsg: ConversationMessage = { role: 'user', content: `User input: ${userInput}` };
+    const updatedConversation = [...conversation, newUserMsg];
+    setConversation(updatedConversation);
+
+    // Continue with accumulated inputs and updated conversation
+    await runAIStep(newInputs, updatedConversation, runIdRef.current);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -418,6 +437,7 @@ export default function FilePage() {
                       setIsWaitingInput(false);
                       setAllInputs([]);
                       setRunning(false);
+                      setConversation([]);
                     }}
                     className="px-4 py-2 text-xs rounded-lg bg-dark-600 hover:bg-dark-500 text-dark-300 transition-colors"
                   >
