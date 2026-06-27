@@ -1,31 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const FREE_MODEL = 'openrouter/quasar-alpha';
+const FALLBACK_MODEL = 'openrouter/optimus-alpha';
+
 export async function POST(req: NextRequest) {
   try {
     const { code, stdin, conversation } = await req.json();
 
-    const systemPrompt = `You are a C# compiler and runtime environment. Your job is to execute C# code mentally and produce EXACT compiler-like output.
+    const systemPrompt = `You are a C# compiler and runtime environment. Execute C# code and produce EXACT console output.
 
 Rules:
-1. Simulate running the provided C# code step by step
-2. If user provides input values, use them for Console.ReadLine() calls in order
-3. Output ONLY what the program would print to console - no explanations, no markdown, no extra text
-4. Format output exactly like a real terminal - line by line as the program executes
-5. If there are compile errors, show them in standard C# compiler format
-6. If the code has infinite loops or hangs, detect and stop after reasonable steps
-7. Show prompts (Console.Write/WriteLine) and then the results
-8. NEVER add explanatory text like "Here is the output" or "The program prints"
-9. NEVER use markdown formatting like \`\`\` or **bold**
-10. Just raw terminal output as the C# program would produce it
+1. Simulate the code execution step by step
+2. Use provided input values for Console.ReadLine() calls in order
+3. Output ONLY what the program prints - no explanations, no markdown
+4. Show prompts and results exactly as they would appear in a terminal
+5. If compile errors exist, show them in standard C# format
+6. NEVER add text like "Here is the output" or "The program prints"
+7. NEVER use markdown code blocks or formatting
+8. Just raw terminal output line by line
 
-Input values provided by user (use in order for Console.ReadLine()):
+Input values (use in order for Console.ReadLine()):
 ${stdin || 'None provided'}
 
-Respond with ONLY the raw console output. No preamble. No postscript.`;
+Respond with ONLY the raw console output. Nothing else.`;
 
     const messages = [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: `Execute this C# code and show ONLY the console output:\n\n${code}` }
+      { role: 'user', content: `Execute this C# code and show ONLY console output:\n\n${code}` }
     ];
 
     if (conversation && conversation.length > 0) {
@@ -34,92 +36,61 @@ Respond with ONLY the raw console output. No preamble. No postscript.`;
       });
     }
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'HTTP-Referer': process.env.NEXT_PUBLIC_SITE_URL || 'https://csharp-code-manager.vercel.app',
-        'X-Title': 'C# Lab Manager',
-      },
-      body: JSON.stringify({
-        model: 'deepseek/deepseek-r1',
-        messages,
-        max_tokens: 2000,
-        temperature: 0.1,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      if (response.status === 429) {
-        return await fallbackRun(code, stdin, conversation);
-      }
-      return NextResponse.json(
-        { error: errorData.error?.message || `API Error: ${response.status}` },
-        { status: 500 }
-      );
+    // Try primary free model
+    let result = await callOpenRouter(FREE_MODEL, messages);
+    
+    // If failed, try fallback
+    if (result.error) {
+      result = await callOpenRouter(FALLBACK_MODEL, messages);
     }
 
-    const data = await response.json();
-    const aiOutput = data.choices?.[0]?.message?.content || '';
-    
-    let cleanOutput = aiOutput
-      .replace(/^```[\s\S]*?\n/, '')
-      .replace(/\n```$/, '')
-      .replace(/^Here is the output:?\s*/i, '')
-      .replace(/^The program prints:?\s*/i, '')
-      .replace(/^Output:?\s*/i, '')
-      .replace(/^Console output:?\s*/i, '')
-      .trim();
-
-    return NextResponse.json({ output: cleanOutput, error: '' });
+    return NextResponse.json(result);
   } catch (err: any) {
     return NextResponse.json(
-      { error: 'Execution failed: ' + err.message },
+      { error: 'Execution failed: ' + err.message, output: '' },
       { status: 500 }
     );
   }
 }
 
-async function fallbackRun(code: string, stdin: string, conversation: any[]) {
-  try {
-    const systemPrompt = `You are a C# compiler. Execute the code and show ONLY raw console output. No explanations. No markdown.`;
-    
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: `C# Code:\n${code}\n\nInputs: ${stdin || 'none'}` }
-    ];
+async function callOpenRouter(model: string, messages: any[]) {
+  const response = await fetch(OPENROUTER_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      'HTTP-Referer': process.env.NEXT_PUBLIC_SITE_URL || 'https://csharp-code-manager.vercel.app',
+      'X-Title': 'C# Lab Manager',
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      max_tokens: 2000,
+      temperature: 0.1,
+    }),
+  });
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'HTTP-Referer': process.env.NEXT_PUBLIC_SITE_URL || 'https://csharp-code-manager.vercel.app',
-        'X-Title': 'C# Lab Manager',
-      },
-      body: JSON.stringify({
-        model: 'qwen/qwen3-235b-a22b:free',
-        messages,
-        max_tokens: 2000,
-        temperature: 0.1,
-      }),
-    });
-
-    const data = await response.json();
-    const aiOutput = data.choices?.[0]?.message?.content || '';
-    
-    let cleanOutput = aiOutput
-      .replace(/^```[\s\S]*?\n/, '')
-      .replace(/\n```$/, '')
-      .trim();
-
-    return NextResponse.json({ output: cleanOutput, error: '' });
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: 'Fallback also failed: ' + err.message },
-      { status: 500 }
-    );
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    return { 
+      error: errorData.error?.message || `API Error ${response.status}`, 
+      output: '' 
+    };
   }
+
+  const data = await response.json();
+  const aiOutput = data.choices?.[0]?.message?.content || '';
+  
+  // Clean the output
+  let cleanOutput = aiOutput
+    .replace(/^```[\s\S]*?\n/, '')
+    .replace(/\n```$/, '')
+    .replace(/^Here is the output:?\s*/i, '')
+    .replace(/^The program prints:?\s*/i, '')
+    .replace(/^Output:?\s*/i, '')
+    .replace(/^Console output:?\s*/i, '')
+    .replace(/^Here's the result:?\s*/i, '')
+    .trim();
+
+  return { output: cleanOutput, error: '' };
 }
