@@ -4,32 +4,26 @@ const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 export async function POST(req: NextRequest) {
   try {
-    const { code, inputs, step } = await req.json();
+    const { code, inputs } = await req.json();
 
-    let userPrompt = '';
-    
-    if (!inputs || inputs.length === 0) {
-      // First call - no inputs yet
-      userPrompt = `Execute this C# code. Run it step by step. Stop immediately when you reach the FIRST Console.ReadLine() call. Show ONLY the output BEFORE that ReadLine (including the prompt text like "Enter..."). Do NOT show what happens after ReadLine.
+    const inputsList = inputs && inputs.length > 0 
+      ? inputs.join('\n')
+      : 'None';
 
-C# Code:
-${code}
+    const userPrompt = `You are a C# compiler. Execute this code with the provided inputs.
 
-Respond with ONLY the raw console output up to (and including) the first input prompt. Nothing else.`;
-    } else {
-      // Subsequent calls - provide all inputs, ask to show them in output
-      const inputsList = inputs.map((v: string, i: number) => `Input ${i + 1}: ${v}`).join('\n');
-      
-      userPrompt = `Continue executing this C# code. The user has ALREADY provided these inputs (show them in the output where ReadLine happens):
-${inputsList}
-
-Continue execution from where the last ReadLine left off. When you reach a ReadLine, show the prompt AND the input value on the SAME line or NEXT line (as a real terminal would). Then continue with calculations and results. Keep going until the NEXT ReadLine or until the program ends.
+CRITICAL RULES:
+1. Use inputs in this EXACT order for EVERY Console.ReadLine(): ${inputsList}
+2. After using an input, cross it off and use the NEXT one for the NEXT ReadLine
+3. Show ONLY output up to and including the NEXT Console.ReadLine() prompt
+4. If all inputs are used up, show the complete remaining output
+5. NEVER skip ReadLine calls - each one needs an input
+6. NEVER generate fake inputs - only use the provided ones
 
 C# Code:
 ${code}
 
-Respond with ONLY the raw console output from this point forward. Include input values in the output. Nothing else.`;
-    }
+Show output from start to the NEXT ReadLine (or to end if no more ReadLine). Raw text only.`;
 
     const response = await fetch(OPENROUTER_API_URL, {
       method: 'POST',
@@ -44,7 +38,7 @@ Respond with ONLY the raw console output from this point forward. Include input 
         messages: [
           { 
             role: 'system', 
-            content: 'You are a C# compiler runtime. When showing output with ReadLine, ALWAYS show the input value that the user typed. For example: "Enter number: 12" or "Enter number:\\n12". Never leave the input blank. Output ONLY raw console text. No explanations.' 
+            content: 'You are a C# compiler runtime. Execute code step by step. Each Console.ReadLine() consumes ONE input value. Stop after each ReadLine and wait. Show input values in output. Raw terminal text only.' 
           },
           { role: 'user', content: userPrompt }
         ],
@@ -62,28 +56,19 @@ Respond with ONLY the raw console output from this point forward. Include input 
     }
 
     const data = await response.json();
-    const aiOutput = data.choices?.[0]?.message?.content || '';
-    
-    // Clean output
-    let cleanOutput = aiOutput
+    let aiOutput = data.choices?.[0]?.message?.content || '';
+
+    aiOutput = aiOutput
       .replace(/^```[\s\S]*?\n/, '')
       .replace(/\n```$/, '')
-      .replace(/^Here is the output:?\s*/i, '')
-      .replace(/^The program prints:?\s*/i, '')
-      .replace(/^Output:?\s*/i, '')
-      .replace(/^Console output:?\s*/i, '')
       .trim();
 
-    // Detect if there's another prompt waiting
-    const lines = cleanOutput.split('\n');
+    // Check if there's another ReadLine waiting (output ends with prompt)
+    const lines = aiOutput.split('\n');
     const lastLine = lines[lines.length - 1].trim();
     const hasMoreInput = lastLine.endsWith(':') && /enter|input|type|give|write|choose|select/i.test(lastLine);
 
-    return NextResponse.json({ 
-      output: cleanOutput, 
-      error: '',
-      hasMoreInput 
-    });
+    return NextResponse.json({ output: aiOutput, error: '', hasMoreInput });
   } catch (err: any) {
     return NextResponse.json(
       { error: 'Execution failed: ' + err.message, output: '', hasMoreInput: false },
