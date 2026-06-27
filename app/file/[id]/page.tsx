@@ -94,10 +94,8 @@ export default function FilePage() {
     setAllInputs([]);
     setIsWaitingInput(false);
     setRevealedIndex(0);
-
-    setOutput(`> Compiling C# code...
-> Using AI Compiler (OpenRouter)...
-`);
+    
+    setOutput(`> Compiling C# code...\n> Using AI Compiler (OpenRouter)...\n`);
 
     try {
       const res = await fetch('/api/run', {
@@ -108,12 +106,10 @@ export default function FilePage() {
           inputs: [],
         }),
       });
-
+      
       const data = await res.json();
       if (data.error) {
-        setOutput(prev => prev + `
-
-[ERROR] ${data.error}`);
+        setOutput(prev => prev + String.fromCharCode(10) + String.fromCharCode(10) + `[ERROR] ${data.error}`);
         setRunning(false);
         return;
       }
@@ -121,7 +117,7 @@ export default function FilePage() {
       // Parse full output into lines
       const lines = (data.output || '').split(String.fromCharCode(10)).map((l: string) => l.trimEnd()).filter((l: string) => l !== '');
       setFullOutput(lines);
-
+      
       // Find which lines are input prompts
       const prompts: number[] = [];
       lines.forEach((line: string, idx: number) => {
@@ -132,9 +128,7 @@ export default function FilePage() {
       // Start revealing line by line
       revealLines(lines, 0, prompts, []);
     } catch (e) {
-      setOutput(prev => prev + '
-
-> Execution error.');
+      setOutput(prev => prev + String.fromCharCode(10) + String.fromCharCode(10) + '> Execution error.');
       setRunning(false);
     }
   };
@@ -152,21 +146,18 @@ export default function FilePage() {
 
     const revealNext = () => {
       if (i >= lines.length) {
-        setOutput(currentOut + '
-
-> Program finished.');
+        setOutput(currentOut + String.fromCharCode(10) + String.fromCharCode(10) + '> Program finished.');
         setRunning(false);
         return;
       }
 
       const line = lines[i];
-
+      
       // Check if this line is an input prompt we haven't satisfied yet
       const promptIndex = prompts.indexOf(i);
       if (promptIndex !== -1 && promptIndex >= givenInputs.length) {
         // Need user input here
-        setOutput(currentOut + line + '
-');
+        setOutput(currentOut + line + String.fromCharCode(10));
         setIsWaitingInput(true);
         setRunning(false);
         setRevealedIndex(i);
@@ -183,11 +174,10 @@ export default function FilePage() {
       }
 
       // Normal output line - show it
-      currentOut += line + '
-';
+      currentOut += line + String.fromCharCode(10);
       setOutput(currentOut);
       i++;
-
+      
       // Fast reveal - 30ms per line
       setTimeout(revealNext, 30);
     };
@@ -197,13 +187,12 @@ export default function FilePage() {
 
   const submitInput = async () => {
     if (!userInput.trim() || !isWaitingInput) return;
-
+    
     const newInputs = [...allInputs, userInput];
     setAllInputs(newInputs);
-
+    
     // Show user's input instantly
-    const newOutput = output + userInput + '
-';
+    const newOutput = output + userInput + String.fromCharCode(10);
     setOutput(newOutput);
     setUserInput('');
     setIsWaitingInput(false);
