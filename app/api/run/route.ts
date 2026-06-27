@@ -6,30 +6,29 @@ export async function POST(req: NextRequest) {
   try {
     const { code, inputs, step } = await req.json();
 
-    // Build prompt based on how many inputs have been given
     let userPrompt = '';
     
     if (!inputs || inputs.length === 0) {
-      // First call - no inputs yet, ask AI to run until first ReadLine
-      userPrompt = `Execute this C# code. Run it step by step. Stop immediately when you reach the FIRST Console.ReadLine() call. Show ONLY the output BEFORE that ReadLine (including the prompt text like "Enter..."). Do NOT show what happens after ReadLine. Do NOT guess the input value.
+      // First call - no inputs yet
+      userPrompt = `Execute this C# code. Run it step by step. Stop immediately when you reach the FIRST Console.ReadLine() call. Show ONLY the output BEFORE that ReadLine (including the prompt text like "Enter..."). Do NOT show what happens after ReadLine.
 
 C# Code:
 ${code}
 
 Respond with ONLY the raw console output up to (and including) the first input prompt. Nothing else.`;
     } else {
-      // Subsequent calls - provide all inputs so far, ask to continue
+      // Subsequent calls - provide all inputs, ask to show them in output
       const inputsList = inputs.map((v: string, i: number) => `Input ${i + 1}: ${v}`).join('\n');
       
-      userPrompt = `Continue executing this C# code. The user has already provided these inputs in order:
+      userPrompt = `Continue executing this C# code. The user has ALREADY provided these inputs (show them in the output where ReadLine happens):
 ${inputsList}
 
-Now continue the execution from where the last ReadLine left off. Show ONLY the next output (prompts, calculations, results) until the NEXT Console.ReadLine() or until the program ends. Do NOT add explanations.
+Continue execution from where the last ReadLine left off. When you reach a ReadLine, show the prompt AND the input value on the SAME line or NEXT line (as a real terminal would). Then continue with calculations and results. Keep going until the NEXT ReadLine or until the program ends.
 
 C# Code:
 ${code}
 
-Respond with ONLY the raw console output from this point forward. Nothing else.`;
+Respond with ONLY the raw console output from this point forward. Include input values in the output. Nothing else.`;
     }
 
     const response = await fetch(OPENROUTER_API_URL, {
@@ -45,7 +44,7 @@ Respond with ONLY the raw console output from this point forward. Nothing else.`
         messages: [
           { 
             role: 'system', 
-            content: 'You are a C# compiler runtime. Execute code step by step. When asked to stop at ReadLine, stop exactly there. When asked to continue with provided inputs, use those inputs and continue. Output ONLY raw console text. No explanations. No markdown.' 
+            content: 'You are a C# compiler runtime. When showing output with ReadLine, ALWAYS show the input value that the user typed. For example: "Enter number: 12" or "Enter number:\\n12". Never leave the input blank. Output ONLY raw console text. No explanations.' 
           },
           { role: 'user', content: userPrompt }
         ],
@@ -75,7 +74,7 @@ Respond with ONLY the raw console output from this point forward. Nothing else.`
       .replace(/^Console output:?\s*/i, '')
       .trim();
 
-    // Detect if there's another prompt waiting (line ending with :)
+    // Detect if there's another prompt waiting
     const lines = cleanOutput.split('\n');
     const lastLine = lines[lines.length - 1].trim();
     const hasMoreInput = lastLine.endsWith(':') && /enter|input|type|give|write|choose|select/i.test(lastLine);
