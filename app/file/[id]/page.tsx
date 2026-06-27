@@ -119,8 +119,7 @@ export default function FilePage() {
       }
 
       // Parse full output into lines
-      const lines = (data.output || '').split('
-').map((l: string) => l.trimEnd()).filter((l: string) => l !== '');
+      const lines = (data.output || '').split(String.fromCharCode(10)).map((l: string) => l.trimEnd()).filter((l: string) => l !== '');
       setFullOutput(lines);
 
       // Find which lines are input prompts
