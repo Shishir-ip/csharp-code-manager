@@ -4,7 +4,7 @@ const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 export async function POST(req: NextRequest) {
   try {
-    const { code, inputs } = await req.json();
+    const { code, inputs, conversation } = await req.json();
 
     if (!code || typeof code !== 'string') {
       return NextResponse.json(
@@ -20,35 +20,32 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Count Console.ReadLine() calls in the code (approximate)
-    const readLineMatches = code.match(/Console\.ReadLine\(\)/g);
-    const totalReadLines = readLineMatches ? readLineMatches.length : 0;
+    // Build conversation messages
+    const messages: { role: string; content: string }[] = [
+      {
+        role: 'system',
+        content: 'You are a C# compiler and runtime. You execute C# code step by step. You MUST show ONLY the output from the current step forward. NEVER repeat output from previous turns. Show prompts and input values together. Compute all arithmetic correctly. If you reach a new Console.ReadLine() and no more inputs are provided, show the prompt and stop.'
+      }
+    ];
 
+    // Add previous conversation if it exists
+    if (conversation && Array.isArray(conversation) && conversation.length > 0) {
+      messages.push(...conversation);
+    }
+
+    // Build the current user message
     const inputsList = inputs && inputs.length > 0
       ? inputs.map((v: string, i: number) => `${i + 1}. ${v}`).join('\n')
       : 'NONE';
 
-    const userPrompt = `You are a C# compiler. Execute this C# code EXACTLY.
+    const userMessage = `Execute this C# code with these inputs (in order): ${inputsList}
 
-INPUTS PROVIDED (use these for Console.ReadLine() in this EXACT order):
-${inputsList}
-
-EXECUTION RULES — FOLLOW STRICTLY:
-1. Start execution from the FIRST line of the code
-2. Use the provided input values for EVERY Console.ReadLine() call, in order
-3. After using an input, SHOW it in the output next to the prompt (e.g., "Enter number: 12")
-4. ACTUALLY COMPUTE all arithmetic, conditionals, and loops with the REAL input values
-5. Double-check: 10 + 20 = 30, 10 - 20 = -10, 10 * 20 = 200, 10 / 20 = 0
-6. Continue execution until the NEXT Console.ReadLine() OR until the program ends
-7. If there's another Console.ReadLine() after the last used input, stop RIGHT AFTER showing that prompt
-8. NEVER skip a ReadLine call
-9. NEVER make up input values — only use the provided ones
-10. If all inputs are used, show the COMPLETE remaining output until the program ends
-
-C# Code:
+CODE:
 ${code}
 
-Show ONLY the raw console output. No explanations. No markdown code blocks. No "Here is the output". Just raw terminal text.`;
+IMPORTANT: Show ONLY the output from where the PREVIOUS turn left off. If this is the first turn, show output from the start until the FIRST Console.ReadLine() prompt. If this is a continuation, show ONLY what happens AFTER the last input was provided. NEVER repeat output from previous turns.`;
+
+    messages.push({ role: 'user', content: userMessage });
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -63,13 +60,7 @@ Show ONLY the raw console output. No explanations. No markdown code blocks. No "
       },
       body: JSON.stringify({
         model: 'openrouter/auto',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a C# compiler runtime. Execute code exactly with the provided inputs. Show all prompts and input values. Compute all arithmetic correctly. Stop at the next Console.ReadLine() if more inputs are needed. Raw terminal text only.'
-          },
-          { role: 'user', content: userPrompt }
-        ],
+        messages,
         max_tokens: 1500,
         temperature: 0.05,
       }),
@@ -108,7 +99,7 @@ Show ONLY the raw console output. No explanations. No markdown code blocks. No "
       });
     }
 
-    // Clean up markdown and prefixes
+    // Clean up
     let cleanOutput = aiOutput;
 
     // Remove markdown code blocks
@@ -136,12 +127,13 @@ Show ONLY the raw console output. No explanations. No markdown code blocks. No "
     cleanOutput = cleanOutput.trim();
 
     // Detect if more input is needed
-    // Method 1: Check if output ends with a prompt line
     const lines = cleanOutput.split('\n');
     const lastLine = lines[lines.length - 1].trim();
     const endsWithPrompt = lastLine.endsWith(':') && /enter|input|type|give|write|choose|select|read|provide|specify/i.test(lastLine.toLowerCase());
 
-    // Method 2: Compare ReadLine count vs inputs provided
+    // Also check if the code has more ReadLine than inputs
+    const readLineMatches = code.match(/Console\.ReadLine\(\)/g);
+    const totalReadLines = readLineMatches ? readLineMatches.length : 0;
     const hasMoreInput = endsWithPrompt || (totalReadLines > (inputs?.length || 0));
 
     return NextResponse.json({ output: cleanOutput, error: '', hasMoreInput });
