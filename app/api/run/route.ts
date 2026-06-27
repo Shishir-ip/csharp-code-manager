@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const FREE_MODEL = 'openrouter/quasar-alpha';
-const FALLBACK_MODEL = 'openrouter/optimus-alpha';
 
 export async function POST(req: NextRequest) {
   try {
@@ -36,61 +34,49 @@ Respond with ONLY the raw console output. Nothing else.`;
       });
     }
 
-    // Try primary free model
-    let result = await callOpenRouter(FREE_MODEL, messages);
-    
-    // If failed, try fallback
-    if (result.error) {
-      result = await callOpenRouter(FALLBACK_MODEL, messages);
+    const response = await fetch(OPENROUTER_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'HTTP-Referer': process.env.NEXT_PUBLIC_SITE_URL || 'https://csharp-code-manager.vercel.app',
+        'X-Title': 'C# Lab Manager',
+      },
+      body: JSON.stringify({
+        model: 'openrouter/auto',
+        messages,
+        max_tokens: 2000,
+        temperature: 0.1,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return NextResponse.json({ 
+        error: errorData.error?.message || `API Error ${response.status}`, 
+        output: '' 
+      }, { status: 500 });
     }
 
-    return NextResponse.json(result);
+    const data = await response.json();
+    const aiOutput = data.choices?.[0]?.message?.content || '';
+    
+    // Clean the output
+    let cleanOutput = aiOutput
+      .replace(/^```[\s\S]*?\n/, '')
+      .replace(/\n```$/, '')
+      .replace(/^Here is the output:?\s*/i, '')
+      .replace(/^The program prints:?\s*/i, '')
+      .replace(/^Output:?\s*/i, '')
+      .replace(/^Console output:?\s*/i, '')
+      .replace(/^Here's the result:?\s*/i, '')
+      .trim();
+
+    return NextResponse.json({ output: cleanOutput, error: '' });
   } catch (err: any) {
     return NextResponse.json(
       { error: 'Execution failed: ' + err.message, output: '' },
       { status: 500 }
     );
   }
-}
-
-async function callOpenRouter(model: string, messages: any[]) {
-  const response = await fetch(OPENROUTER_API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-      'HTTP-Referer': process.env.NEXT_PUBLIC_SITE_URL || 'https://csharp-code-manager.vercel.app',
-      'X-Title': 'C# Lab Manager',
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      max_tokens: 2000,
-      temperature: 0.1,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    return { 
-      error: errorData.error?.message || `API Error ${response.status}`, 
-      output: '' 
-    };
-  }
-
-  const data = await response.json();
-  const aiOutput = data.choices?.[0]?.message?.content || '';
-  
-  // Clean the output
-  let cleanOutput = aiOutput
-    .replace(/^```[\s\S]*?\n/, '')
-    .replace(/\n```$/, '')
-    .replace(/^Here is the output:?\s*/i, '')
-    .replace(/^The program prints:?\s*/i, '')
-    .replace(/^Output:?\s*/i, '')
-    .replace(/^Console output:?\s*/i, '')
-    .replace(/^Here's the result:?\s*/i, '')
-    .trim();
-
-  return { output: cleanOutput, error: '' };
 }
