@@ -81,59 +81,119 @@ export default function FilePage() {
     }, 3);
   };
 
-  // AI MODE - Step by step, CLEAR old output first
+  // AI MODE - One API call, then interactive reveal
+  const [fullOutput, setFullOutput] = useState<string[]>([]);
+  const [revealedIndex, setRevealedIndex] = useState(0);
+  const [inputPrompts, setInputPrompts] = useState<number[]>([]);
+
   const startAI = async () => {
     if (!file) return;
-    // CLEAR everything first
     setRunning(true);
     setShowTerm(true);
     setOutput('');
     setAllInputs([]);
     setIsWaitingInput(false);
+    setRevealedIndex(0);
 
-    setOutput(`> Compiling C# code...\n> Using AI Compiler (OpenRouter)...\n`);
+    setOutput(`> Compiling C# code...
+> Using AI Compiler (OpenRouter)...
+`);
 
-    // Step 1: Run until first ReadLine
-    await runAIStep([]);
-  };
-
-  const runAIStep = async (currentInputs: string[]) => {
     try {
       const res = await fetch('/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          code: file?.content || '', 
-          inputs: currentInputs,
+          code: file.content, 
+          inputs: [],
         }),
       });
 
       const data = await res.json();
-
       if (data.error) {
-        setOutput(prev => prev + `\n\n[ERROR] ${data.error}`);
+        setOutput(prev => prev + `
+
+[ERROR] ${data.error}`);
         setRunning(false);
-        setIsWaitingInput(false);
         return;
       }
 
-      // Append new output
-      const aiText = data.output || '';
-      setOutput(prev => prev + (prev.endsWith('\n') || prev === '' ? '' : '\n') + aiText);
+      // Parse full output into lines
+      const lines = (data.output || '').split('
+').map((l: string) => l.trimEnd()).filter((l: string) => l !== '');
+      setFullOutput(lines);
 
-      if (data.hasMoreInput) {
+      // Find which lines are input prompts
+      const prompts: number[] = [];
+      lines.forEach((line: string, idx: number) => {
+        if (isInputPrompt(line)) prompts.push(idx);
+      });
+      setInputPrompts(prompts);
+
+      // Start revealing line by line
+      revealLines(lines, 0, prompts, []);
+    } catch (e) {
+      setOutput(prev => prev + '
+
+> Execution error.');
+      setRunning(false);
+    }
+  };
+
+  const isInputPrompt = (line: string): boolean => {
+    const trimmed = line.trim();
+    if (!trimmed.endsWith(':')) return false;
+    const lower = trimmed.toLowerCase();
+    return /enter|input|type|give|write|choose|select/.test(lower);
+  };
+
+  const revealLines = (lines: string[], startIdx: number, prompts: number[], givenInputs: string[]) => {
+    let currentOut = output;
+    let i = startIdx;
+
+    const revealNext = () => {
+      if (i >= lines.length) {
+        setOutput(currentOut + '
+
+> Program finished.');
+        setRunning(false);
+        return;
+      }
+
+      const line = lines[i];
+
+      // Check if this line is an input prompt we haven't satisfied yet
+      const promptIndex = prompts.indexOf(i);
+      if (promptIndex !== -1 && promptIndex >= givenInputs.length) {
+        // Need user input here
+        setOutput(currentOut + line + '
+');
         setIsWaitingInput(true);
         setRunning(false);
-      } else {
-        setOutput(prev => prev + '\n\n> Program finished.');
-        setRunning(false);
-        setIsWaitingInput(false);
+        setRevealedIndex(i);
+        return;
       }
-    } catch (e) {
-      setOutput(prev => prev + '\n\n> Execution error.');
-      setRunning(false);
-      setIsWaitingInput(false);
-    }
+
+      // If this line is an input value (next line after a satisfied prompt), skip it (user already typed it)
+      const prevPromptIdx = prompts.findIndex(p => p === i - 1);
+      if (prevPromptIdx !== -1 && prevPromptIdx < givenInputs.length) {
+        // This line is the AI's guess of the input value - skip it, we show user's value instead
+        i++;
+        revealNext();
+        return;
+      }
+
+      // Normal output line - show it
+      currentOut += line + '
+';
+      setOutput(currentOut);
+      i++;
+
+      // Fast reveal - 30ms per line
+      setTimeout(revealNext, 30);
+    };
+
+    revealNext();
   };
 
   const submitInput = async () => {
@@ -142,14 +202,18 @@ export default function FilePage() {
     const newInputs = [...allInputs, userInput];
     setAllInputs(newInputs);
 
-    // Show user's input
-    setOutput(prev => prev + userInput + '\n');
+    // Show user's input instantly
+    const newOutput = output + userInput + '
+';
+    setOutput(newOutput);
     setUserInput('');
     setIsWaitingInput(false);
     setRunning(true);
 
-    // Continue with accumulated inputs
-    await runAIStep(newInputs);
+    // Continue revealing from where we left off
+    setTimeout(() => {
+      revealLines(fullOutput, revealedIndex + 1, inputPrompts, newInputs);
+    }, 50);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
