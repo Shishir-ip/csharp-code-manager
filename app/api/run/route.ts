@@ -7,23 +7,15 @@ export async function POST(req: NextRequest) {
     const { code, inputs } = await req.json();
 
     const inputsList = inputs && inputs.length > 0 
-      ? inputs.join('\n')
-      : 'None';
+      ? `The user will provide these inputs for Console.ReadLine() calls IN ORDER:\n${inputs.join('\n')}\n\n`
+      : 'The user has not provided any inputs yet. Show the program output including all input prompts.\n\n';
 
-    const userPrompt = `You are a C# compiler. Execute this code with the provided inputs.
-
-CRITICAL RULES:
-1. Use inputs in this EXACT order for EVERY Console.ReadLine(): ${inputsList}
-2. After using an input, cross it off and use the NEXT one for the NEXT ReadLine
-3. Show ONLY output up to and including the NEXT Console.ReadLine() prompt
-4. If all inputs are used up, show the complete remaining output
-5. NEVER skip ReadLine calls - each one needs an input
-6. NEVER generate fake inputs - only use the provided ones
+    const userPrompt = `${inputsList}Execute this C# code and show the COMPLETE terminal output from start to finish. Show EVERY prompt (Console.Write/WriteLine) and EVERY result. When Console.ReadLine() is called, show the prompt and the input value on the next line.
 
 C# Code:
 ${code}
 
-Show output from start to the NEXT ReadLine (or to end if no more ReadLine). Raw text only.`;
+Show the FULL output. No explanations. No markdown. Just raw terminal text.`;
 
     const response = await fetch(OPENROUTER_API_URL, {
       method: 'POST',
@@ -36,13 +28,10 @@ Show output from start to the NEXT ReadLine (or to end if no more ReadLine). Raw
       body: JSON.stringify({
         model: 'openrouter/auto',
         messages: [
-          { 
-            role: 'system', 
-            content: 'You are a C# compiler runtime. Execute code step by step. Each Console.ReadLine() consumes ONE input value. Stop after each ReadLine and wait. Show input values in output. Raw terminal text only.' 
-          },
+          { role: 'system', content: 'You are a C# compiler. Show complete terminal output with all prompts and input values. Raw text only.' },
           { role: 'user', content: userPrompt }
         ],
-        max_tokens: 1000,
+        max_tokens: 1500,
         temperature: 0.05,
       }),
     });
@@ -57,21 +46,16 @@ Show output from start to the NEXT ReadLine (or to end if no more ReadLine). Raw
 
     const data = await response.json();
     let aiOutput = data.choices?.[0]?.message?.content || '';
-
+    
     aiOutput = aiOutput
       .replace(/^```[\s\S]*?\n/, '')
       .replace(/\n```$/, '')
       .trim();
 
-    // Check if there's another ReadLine waiting (output ends with prompt)
-    const lines = aiOutput.split('\n');
-    const lastLine = lines[lines.length - 1].trim();
-    const hasMoreInput = lastLine.endsWith(':') && /enter|input|type|give|write|choose|select/i.test(lastLine);
-
-    return NextResponse.json({ output: aiOutput, error: '', hasMoreInput });
+    return NextResponse.json({ output: aiOutput, error: '' });
   } catch (err: any) {
     return NextResponse.json(
-      { error: 'Execution failed: ' + err.message, output: '', hasMoreInput: false },
+      { error: 'Execution failed: ' + err.message, output: '' },
       { status: 500 }
     );
   }
