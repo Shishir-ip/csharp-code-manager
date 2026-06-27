@@ -61,6 +61,7 @@ export default function FilePage() {
       setOutput('> No simulation output defined.');
       return;
     }
+    // CLEAR old output
     setShowTerm(true);
     setOutput('');
     setAllInputs([]);
@@ -80,15 +81,16 @@ export default function FilePage() {
     }, 3);
   };
 
-  // AI MODE - Step by step interactive
+  // AI MODE - Step by step, CLEAR old output first
   const startAI = async () => {
     if (!file) return;
+    // CLEAR everything first
     setRunning(true);
     setShowTerm(true);
     setOutput('');
     setAllInputs([]);
     setIsWaitingInput(false);
-    
+
     setOutput(`> Compiling C# code...\n> Using AI Compiler (OpenRouter)...\n`);
 
     // Step 1: Run until first ReadLine
@@ -105,7 +107,7 @@ export default function FilePage() {
           inputs: currentInputs,
         }),
       });
-      
+
       const data = await res.json();
 
       if (data.error) {
@@ -116,15 +118,13 @@ export default function FilePage() {
       }
 
       // Append new output
-      const newOutput = output + (output.endsWith('\n') || output === '' ? '' : '\n') + data.output;
-      setOutput(newOutput);
+      const aiText = data.output || '';
+      setOutput(prev => prev + (prev.endsWith('\n') || prev === '' ? '' : '\n') + aiText);
 
       if (data.hasMoreInput) {
-        // AI says there's another input needed
         setIsWaitingInput(true);
         setRunning(false);
       } else {
-        // Program finished
         setOutput(prev => prev + '\n\n> Program finished.');
         setRunning(false);
         setIsWaitingInput(false);
@@ -138,61 +138,20 @@ export default function FilePage() {
 
   const submitInput = async () => {
     if (!userInput.trim() || !isWaitingInput) return;
-    
+
     const newInputs = [...allInputs, userInput];
     setAllInputs(newInputs);
-    
-    // Show user's input in terminal
-    const newOutput = output + userInput + '\n';
-    setOutput(newOutput);
+
+    // Show user's input
+    setOutput(prev => prev + userInput + '\n');
     setUserInput('');
     setIsWaitingInput(false);
     setRunning(true);
 
     // Continue with accumulated inputs
-    try {
-      const res = await fetch('/api/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          code: file?.content || '', 
-          inputs: newInputs,
-        }),
-      });
-      
-      const data = await res.json();
+    await runAIStep(newInputs);
+  };
 
-      if (data.error) {
-        setOutput(prev => prev + `\n[ERROR] ${data.error}`);
-        setRunning(false);
-        return;
-      }
-
-      // FIX: Remove duplicate prompt line if AI repeated it
-      let aiText = data.output || '';
-      const lastLine = output.trim().split('\n').pop() || '';
-      
-      // If AI output starts with the same prompt we already showed, remove it
-      const aiLines = aiText.split('\n');
-      if (aiLines.length > 0 && aiLines[0].trim() === lastLine.trim()) {
-        aiLines.shift(); // Remove first line (duplicate prompt)
-        aiText = aiLines.join('\n');
-      }
-
-      setOutput(prev => prev + aiText);
-
-      if (data.hasMoreInput) {
-        setIsWaitingInput(true);
-        setRunning(false);
-      } else {
-        setOutput(prev => prev + '\n\n> Program finished.');
-        setRunning(false);
-      }
-    } catch (e) {
-      setOutput(prev => prev + '\n> Execution error.');
-      setRunning(false);
-    }
-};
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') submitInput();
   };
