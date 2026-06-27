@@ -15,12 +15,6 @@ type FileData = {
   content: string;
   folder_id: string | null;
   simulation_output: string | null;
-  simulation_input: string | null;
-};
-
-type ChatMessage = {
-  role: 'user' | 'assistant';
-  content: string;
 };
 
 export default function FilePage() {
@@ -33,7 +27,6 @@ export default function FilePage() {
   const [isWaitingInput, setIsWaitingInput] = useState(false);
   const [copied, setCopied] = useState(false);
   const [mode, setMode] = useState<'simulation' | 'ai'>('simulation');
-  const [conversation, setConversation] = useState<ChatMessage[]>([]);
   const [allInputs, setAllInputs] = useState<string[]>([]);
   const outputRef = useRef<HTMLDivElement>(null);
 
@@ -42,11 +35,8 @@ export default function FilePage() {
       supabase.from('files').select('*').eq('id', id).single().then(({ data }) => {
         if (data) {
           setFile(data);
-          if (data.simulation_output) {
-            setMode('simulation');
-          } else {
-            setMode('ai');
-          }
+          if (data.simulation_output) setMode('simulation');
+          else setMode('ai');
         }
       });
     }
@@ -64,12 +54,15 @@ export default function FilePage() {
     }
   };
 
-  // SIMULATION MODE - Predefined output
+  // SIMULATION MODE
   const runSimulation = () => {
-    if (!file?.simulation_output) return;
+    if (!file?.simulation_output) {
+      setShowTerm(true);
+      setOutput('> No simulation output defined.');
+      return;
+    }
     setShowTerm(true);
     setOutput('');
-    setConversation([]);
     setAllInputs([]);
     const fullOutput = file.simulation_output;
     let current = `> Initializing simulation...\n> Running C# program...\n\n`;
@@ -87,139 +80,77 @@ export default function FilePage() {
     }, 3);
   };
 
-  // AI MODE - OpenRouter acts as compiler
+  // AI MODE - Step by step interactive
   const startAI = async () => {
     if (!file) return;
     setRunning(true);
     setShowTerm(true);
     setOutput('');
-    setConversation([]);
     setAllInputs([]);
     setIsWaitingInput(false);
-
+    
     setOutput(`> Compiling C# code...\n> Using AI Compiler (OpenRouter)...\n`);
 
+    // Step 1: Run until first ReadLine
+    await runAIStep([]);
+  };
+
+  const runAIStep = async (currentInputs: string[]) => {
     try {
-      const res = await fetch('/api/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          code: file.content, 
-          stdin: '',
-          conversation: []
-        }),
-      });
-      const data = await res.json();
-
-      if (data.error) {
-        setOutput(`> Compilation failed.\n\n${data.error}`);
-        setRunning(false);
-        return;
-      }
-
-      // Check if output contains input prompts
-      const lines = (data.output || '').split('\n');
-      let hasPrompts = false;
-
-      for (const line of lines) {
-        if (isInputPrompt(line)) {
-          hasPrompts = true;
-          break;
-        }
-      }
-
-      if (hasPrompts) {
-        // Interactive mode - show output line by line until prompt
-        setOutput('');
-        showInteractiveOutput(lines, 0, '');
-      } else {
-        // No prompts - show full output
-        setOutput(`> Compilation successful.\n\n${data.output || '> No output produced.'}`);
-        setRunning(false);
-      }
-    } catch (e) {
-      setOutput(`> Failed to execute code.\n> API may be unavailable.`);
-      setRunning(false);
-    }
-  };
-
-  const isInputPrompt = (line: string): boolean => {
-    const trimmed = line.trim();
-    if (!trimmed.endsWith(':')) return false;
-    const promptWords = ['enter', 'input', 'type', 'give', 'provide', 'write', 'choose', 'select'];
-    const lower = trimmed.toLowerCase();
-    return promptWords.some(w => lower.includes(w));
-  };
-
-  const showInteractiveOutput = (lines: string[], idx: number, currentOut: string) => {
-    if (idx >= lines.length) {
-      setOutput(currentOut + '\n\n> Program finished.');
-      setRunning(false);
-      setIsWaitingInput(false);
-      return;
-    }
-
-    const line = lines[idx];
-
-    if (isInputPrompt(line)) {
-      setOutput(currentOut + line + '\n');
-      setIsWaitingInput(true);
-      setRunning(false);
-    } else {
-      const newOut = currentOut + line + '\n';
-      setOutput(newOut);
-      setTimeout(() => showInteractiveOutput(lines, idx + 1, newOut), 40);
-    }
-  };
-
-  const submitInput = async () => {
-    if (!userInput.trim() || !isWaitingInput) return;
-
-    const newInputs = [...allInputs, userInput];
-    setAllInputs(newInputs);
-
-    const newOut = output + userInput + '\n';
-    setOutput(newOut);
-    setUserInput('');
-    setIsWaitingInput(false);
-    setRunning(true);
-
-    // Continue with AI using accumulated inputs
-    try {
-      const newConversation: ChatMessage[] = [
-        ...conversation,
-        { role: 'user', content: `User input: ${userInput}` }
-      ];
-      setConversation(newConversation);
-
       const res = await fetch('/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           code: file?.content || '', 
-          stdin: newInputs.join('\n'),
-          conversation: newConversation
+          inputs: currentInputs,
         }),
       });
+      
       const data = await res.json();
 
       if (data.error) {
-        setOutput(newOut + `\n[ERROR] ${data.error}`);
+        setOutput(prev => prev + `\n\n[ERROR] ${data.error}`);
         setRunning(false);
+        setIsWaitingInput(false);
         return;
       }
 
-      // Parse new output - only show new lines after previous output
-      const fullOutput = data.output || '';
-      const allLines = fullOutput.split('\n');
+      // Append new output
+      const newOutput = output + (output.endsWith('\n') || output === '' ? '' : '\n') + data.output;
+      setOutput(newOutput);
 
-      // Find where we left off
-      const prevLines = newOut.split('\n').length;
-      showInteractiveOutput(allLines, prevLines - 1, newOut);
+      if (data.hasMoreInput) {
+        // AI says there's another input needed
+        setIsWaitingInput(true);
+        setRunning(false);
+      } else {
+        // Program finished
+        setOutput(prev => prev + '\n\n> Program finished.');
+        setRunning(false);
+        setIsWaitingInput(false);
+      }
     } catch (e) {
-      setOutput(newOut + '\n> Execution error.');
+      setOutput(prev => prev + '\n\n> Execution error.');
       setRunning(false);
+      setIsWaitingInput(false);
     }
+  };
+
+  const submitInput = async () => {
+    if (!userInput.trim() || !isWaitingInput) return;
+    
+    const newInputs = [...allInputs, userInput];
+    setAllInputs(newInputs);
+    
+    // Show user's input in terminal
+    const newOutput = output + userInput + '\n';
+    setOutput(newOutput);
+    setUserInput('');
+    setIsWaitingInput(false);
+    setRunning(true);
+
+    // Continue with accumulated inputs
+    await runAIStep(newInputs);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -227,11 +158,8 @@ export default function FilePage() {
   };
 
   const handleRun = () => {
-    if (mode === 'simulation') {
-      runSimulation();
-    } else {
-      startAI();
-    }
+    if (mode === 'simulation') runSimulation();
+    else startAI();
   };
 
   if (!file) {
@@ -249,7 +177,6 @@ export default function FilePage() {
 
   return (
     <div className="min-h-screen bg-dark-900">
-      {/* Header - Bigger */}
       <motion.header
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
@@ -312,7 +239,6 @@ export default function FilePage() {
         </div>
       </motion.header>
 
-      {/* Code Box - Bigger */}
       <div className="max-w-6xl mx-auto px-4 md:px-8 py-8">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -366,7 +292,7 @@ export default function FilePage() {
               <div>
                 <p className="text-base font-medium text-purple-300">Simulation Mode Active</p>
                 <p className="text-sm text-purple-400/70 mt-1">
-                  This file has a pre-defined output. No external API needed — runs instantly.
+                  Pre-defined output. No API needed — runs instantly.
                 </p>
               </div>
             </div>
@@ -384,7 +310,7 @@ export default function FilePage() {
               <div>
                 <p className="text-base font-medium text-blue-300">AI Compiler Mode</p>
                 <p className="text-sm text-blue-400/70 mt-1">
-                  Uses OpenRouter AI to simulate C# compilation and execution. Supports interactive input.
+                  Interactive execution with OpenRouter AI. Type inputs when prompted.
                 </p>
               </div>
             </div>
@@ -392,7 +318,6 @@ export default function FilePage() {
         )}
       </div>
 
-      {/* Terminal Modal - Bigger */}
       <AnimatePresence>
         {showTerm && (
           <motion.div
@@ -468,7 +393,7 @@ export default function FilePage() {
                 </span>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => { setOutput(''); setUserInput(''); setIsWaitingInput(false); setConversation([]); setAllInputs([]); }}
+                    onClick={() => { setOutput(''); setUserInput(''); setIsWaitingInput(false); setAllInputs([]); }}
                     className="px-4 py-2 text-xs rounded-lg bg-dark-600 hover:bg-dark-500 text-dark-300 transition-colors"
                   >
                     Clear
