@@ -4,34 +4,32 @@ const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 export async function POST(req: NextRequest) {
   try {
-    const { code, stdin, conversation } = await req.json();
+    const { code, inputs, step } = await req.json();
 
-    const systemPrompt = `You are a C# compiler and runtime environment. Execute C# code and produce EXACT console output.
+    // Build prompt based on how many inputs have been given
+    let userPrompt = '';
+    
+    if (!inputs || inputs.length === 0) {
+      // First call - no inputs yet, ask AI to run until first ReadLine
+      userPrompt = `Execute this C# code. Run it step by step. Stop immediately when you reach the FIRST Console.ReadLine() call. Show ONLY the output BEFORE that ReadLine (including the prompt text like "Enter..."). Do NOT show what happens after ReadLine. Do NOT guess the input value.
 
-Rules:
-1. Simulate the code execution step by step
-2. Use provided input values for Console.ReadLine() calls in order
-3. Output ONLY what the program prints - no explanations, no markdown
-4. Show prompts and results exactly as they would appear in a terminal
-5. If compile errors exist, show them in standard C# format
-6. NEVER add text like "Here is the output" or "The program prints"
-7. NEVER use markdown code blocks or formatting
-8. Just raw terminal output line by line
+C# Code:
+${code}
 
-Input values (use in order for Console.ReadLine()):
-${stdin || 'None provided'}
+Respond with ONLY the raw console output up to (and including) the first input prompt. Nothing else.`;
+    } else {
+      // Subsequent calls - provide all inputs so far, ask to continue
+      const inputsList = inputs.map((v: string, i: number) => `Input ${i + 1}: ${v}`).join('\n');
+      
+      userPrompt = `Continue executing this C# code. The user has already provided these inputs in order:
+${inputsList}
 
-Respond with ONLY the raw console output. Nothing else.`;
+Now continue the execution from where the last ReadLine left off. Show ONLY the next output (prompts, calculations, results) until the NEXT Console.ReadLine() or until the program ends. Do NOT add explanations.
 
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: `Execute this C# code and show ONLY console output:\n\n${code}` }
-    ];
+C# Code:
+${code}
 
-    if (conversation && conversation.length > 0) {
-      conversation.forEach((msg: any) => {
-        messages.push({ role: msg.role, content: msg.content });
-      });
+Respond with ONLY the raw console output from this point forward. Nothing else.`;
     }
 
     const response = await fetch(OPENROUTER_API_URL, {
@@ -44,9 +42,15 @@ Respond with ONLY the raw console output. Nothing else.`;
       },
       body: JSON.stringify({
         model: 'openrouter/auto',
-        messages,
-        max_tokens: 2000,
-        temperature: 0.1,
+        messages: [
+          { 
+            role: 'system', 
+            content: 'You are a C# compiler runtime. Execute code step by step. When asked to stop at ReadLine, stop exactly there. When asked to continue with provided inputs, use those inputs and continue. Output ONLY raw console text. No explanations. No markdown.' 
+          },
+          { role: 'user', content: userPrompt }
+        ],
+        max_tokens: 1000,
+        temperature: 0.05,
       }),
     });
 
@@ -61,7 +65,7 @@ Respond with ONLY the raw console output. Nothing else.`;
     const data = await response.json();
     const aiOutput = data.choices?.[0]?.message?.content || '';
     
-    // Clean the output
+    // Clean output
     let cleanOutput = aiOutput
       .replace(/^```[\s\S]*?\n/, '')
       .replace(/\n```$/, '')
@@ -69,13 +73,21 @@ Respond with ONLY the raw console output. Nothing else.`;
       .replace(/^The program prints:?\s*/i, '')
       .replace(/^Output:?\s*/i, '')
       .replace(/^Console output:?\s*/i, '')
-      .replace(/^Here's the result:?\s*/i, '')
       .trim();
 
-    return NextResponse.json({ output: cleanOutput, error: '' });
+    // Detect if there's another prompt waiting (line ending with :)
+    const lines = cleanOutput.split('\n');
+    const lastLine = lines[lines.length - 1].trim();
+    const hasMoreInput = lastLine.endsWith(':') && /enter|input|type|give|write|choose|select/i.test(lastLine);
+
+    return NextResponse.json({ 
+      output: cleanOutput, 
+      error: '',
+      hasMoreInput 
+    });
   } catch (err: any) {
     return NextResponse.json(
-      { error: 'Execution failed: ' + err.message, output: '' },
+      { error: 'Execution failed: ' + err.message, output: '', hasMoreInput: false },
       { status: 500 }
     );
   }
