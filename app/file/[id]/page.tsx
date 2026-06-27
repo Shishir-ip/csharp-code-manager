@@ -30,10 +30,8 @@ export default function FilePage() {
   const [allInputs, setAllInputs] = useState<string[]>([]);
   const outputRef = useRef<HTMLDivElement>(null);
 
-  // Refs for AI run management (prevent stale closures, cancel old runs)
+  // Ref for run cancellation
   const runIdRef = useRef(0);
-  const fullOutputLinesRef = useRef<string[]>([]);
-  const pendingIndexRef = useRef(0);
 
   useEffect(() => {
     if (id) {
@@ -74,8 +72,6 @@ export default function FilePage() {
     setAllInputs([]);
     setIsWaitingInput(false);
     setRunning(false);
-    fullOutputLinesRef.current = [];
-    pendingIndexRef.current = 0;
 
     const fullOutput = file.simulation_output;
     let current = `> Initializing simulation...\n> Running C# program...\n\n`;
@@ -93,7 +89,7 @@ export default function FilePage() {
     }, 3);
   };
 
-  // AI MODE - One API call, then reveal line-by-line with interactive pauses
+  // AI MODE — Step by step, one API call per input
   const startAI = async () => {
     if (!file) return;
 
@@ -101,99 +97,65 @@ export default function FilePage() {
     runIdRef.current += 1;
     const currentRunId = runIdRef.current;
 
-    // Clear everything
+    // Clear everything completely
     setRunning(true);
     setShowTerm(true);
     setOutput('');
     setAllInputs([]);
     setIsWaitingInput(false);
-    fullOutputLinesRef.current = [];
-    pendingIndexRef.current = 0;
+    setUserInput('');
 
     setOutput(`> Compiling C# code...\n> Using AI Compiler (OpenRouter)...\n\n`);
+
+    // Step 1: Run with no inputs
+    await runAIStep([], currentRunId);
+  };
+
+  const runAIStep = async (currentInputs: string[], runId: number) => {
+    if (runId !== runIdRef.current) return;
 
     try {
       const res = await fetch('/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: file.content }),
+        body: JSON.stringify({
+          code: file?.content || '',
+          inputs: currentInputs,
+        }),
       });
 
-      if (currentRunId !== runIdRef.current) return; // Cancelled
+      if (runId !== runIdRef.current) return;
 
       const data = await res.json();
 
       if (data.error) {
         setOutput(prev => prev + `\n[ERROR] ${data.error}`);
         setRunning(false);
+        setIsWaitingInput(false);
         return;
       }
 
-      const rawOutput = data.output || '';
-      if (!rawOutput.trim()) {
-        setOutput(prev => prev + '\n[No output generated.]\n> Program finished.');
+      const aiText = data.output || '';
+
+      // Build the display output: keep system messages, replace AI part
+      const systemHeader = `> Compiling C# code...\n> Using AI Compiler (OpenRouter)...\n\n`;
+      setOutput(systemHeader + aiText);
+
+      if (data.hasMoreInput) {
+        setIsWaitingInput(true);
         setRunning(false);
-        return;
-      }
-
-      const lines = rawOutput.split('\n').map((l: string) => l.trimEnd());
-      fullOutputLinesRef.current = lines;
-
-      // Check if the AI used [AWAITING_INPUT] markers
-      const hasMarkers = lines.some((l: string) => l.includes('[AWAITING_INPUT]'));
-
-      if (!hasMarkers) {
-        // No markers - show full output statically (fallback for non-interactive or AI not following instructions)
-        setOutput(prev => prev + lines.join('\n') + '\n\n> Program finished.');
+      } else {
+        // Program finished
+        setOutput(prev => prev + '\n\n> Program finished.');
         setRunning(false);
-        return;
+        setIsWaitingInput(false);
       }
-
-      // Start revealing line by line
-      revealLines(0, currentRunId);
     } catch (e) {
-      if (currentRunId !== runIdRef.current) return;
+      if (runId !== runIdRef.current) return;
       setOutput(prev => prev + '\n\n> Execution error.');
       setRunning(false);
+      setIsWaitingInput(false);
     }
-  };
-
-  const revealLines = (index: number, runId: number) => {
-    if (runId !== runIdRef.current) return;
-
-    const lines = fullOutputLinesRef.current;
-
-    if (index >= lines.length) {
-      setRunning(false);
-      setOutput(prev => prev + '\n> Program finished.');
-      return;
-    }
-
-    const line = lines[index];
-
-    // Check for standalone marker on its own line
-    if (line.trim() === '[AWAITING_INPUT]') {
-      pendingIndexRef.current = index + 1;
-      setIsWaitingInput(true);
-      setRunning(false);
-      return;
-    }
-
-    // Check for inline marker (same line as prompt)
-    if (line.includes('[AWAITING_INPUT]')) {
-      const cleanLine = line.replace(/\[AWAITING_INPUT\]/g, '').trimEnd();
-      setOutput(prev => prev + cleanLine);
-      pendingIndexRef.current = index + 1;
-      setIsWaitingInput(true);
-      setRunning(false);
-      return;
-    }
-
-    // Show the line normally
-    setOutput(prev => prev + line + '\n');
-
-    // Continue to next line with small delay for smooth effect
-    setTimeout(() => revealLines(index + 1, runId), 20);
   };
 
   const submitInput = async () => {
@@ -201,15 +163,12 @@ export default function FilePage() {
 
     const newInputs = [...allInputs, userInput];
     setAllInputs(newInputs);
-
-    // Show user's input in terminal
-    setOutput(prev => prev + userInput + '\n');
     setUserInput('');
     setIsWaitingInput(false);
     setRunning(true);
 
-    // Continue revealing from pending index
-    revealLines(pendingIndexRef.current, runIdRef.current);
+    // Continue with accumulated inputs
+    await runAIStep(newInputs, runIdRef.current);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -318,8 +277,8 @@ export default function FilePage() {
             </div>
           </div>
 
-          <SyntaxHighlighter 
-            language="csharp" 
+          <SyntaxHighlighter
+            language="csharp"
             style={vscDarkPlus}
             showLineNumbers
             customStyle={{
@@ -452,15 +411,13 @@ export default function FilePage() {
                 </span>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => { 
-                      runIdRef.current += 1; // Cancel any ongoing run
-                      setOutput(''); 
-                      setUserInput(''); 
-                      setIsWaitingInput(false); 
-                      setAllInputs([]); 
+                    onClick={() => {
+                      runIdRef.current += 1;
+                      setOutput('');
+                      setUserInput('');
+                      setIsWaitingInput(false);
+                      setAllInputs([]);
                       setRunning(false);
-                      fullOutputLinesRef.current = [];
-                      pendingIndexRef.current = 0;
                     }}
                     className="px-4 py-2 text-xs rounded-lg bg-dark-600 hover:bg-dark-500 text-dark-300 transition-colors"
                   >
