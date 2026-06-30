@@ -2,7 +2,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Copy, Play, X, Terminal, ArrowLeft, Zap, MousePointerClick, Check, Send, Loader2 } from 'lucide-react';
+import { Copy, Play, X, Terminal, ArrowLeft, Zap, MousePointerClick, Check, Send, Loader2, FileCode } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { supabase } from '@/lib/supabase/client';
@@ -34,7 +34,10 @@ export default function FilePage() {
   const [mode, setMode] = useState<'simulation' | 'ai'>('simulation');
   const [allInputs, setAllInputs] = useState<string[]>([]);
   const [conversation, setConversation] = useState<ConversationMessage[]>([]);
-  const [expandedTopic, setExpandedTopic] = useState(false);
+  const [showTopicModal, setShowTopicModal] = useState(false);
+  const [topicExpanded, setTopicExpanded] = useState(false);
+  const [needsMore, setNeedsMore] = useState(false);
+  const topicRef = useRef<HTMLDivElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const runIdRef = useRef(0);
 
@@ -54,6 +57,20 @@ export default function FilePage() {
     if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
   }, [output]);
 
+  // Check if topic text exceeds 3 lines when expanded
+  useEffect(() => {
+    if (topicRef.current && file?.topic) {
+      const el = topicRef.current;
+      // Temporarily remove line-clamp to measure full height
+      const originalClass = el.className;
+      el.className = originalClass.replace('line-clamp-3', '').trim();
+      const fullHeight = el.scrollHeight;
+      el.className = originalClass;
+      const clampedHeight = el.clientHeight;
+      setNeedsMore(fullHeight > clampedHeight + 2);
+    }
+  }, [file?.topic, topicExpanded]);
+
   const handleCopy = () => {
     if (file?.content) {
       navigator.clipboard.writeText(file.content);
@@ -69,9 +86,7 @@ export default function FilePage() {
       setOutput('> No simulation output defined.');
       return;
     }
-    // Cancel any AI run
     runIdRef.current += 1;
-    // Clear everything
     setShowTerm(true);
     setOutput('');
     setAllInputs([]);
@@ -95,15 +110,12 @@ export default function FilePage() {
     }, 3);
   };
 
-  // AI MODE — Step by step with conversation context
+  // AI MODE
   const startAI = async () => {
     if (!file) return;
-
-    // Cancel any previous run
     runIdRef.current += 1;
     const currentRunId = runIdRef.current;
 
-    // Clear everything completely
     setRunning(true);
     setShowTerm(true);
     setOutput('');
@@ -113,8 +125,6 @@ export default function FilePage() {
     setConversation([]);
 
     setOutput(`> Compiling C# code...\n> Using AI Compiler (OpenRouter)...\n\n`);
-
-    // Step 1: Run with no inputs and no conversation
     await runAIStep([], [], currentRunId);
   };
 
@@ -144,13 +154,10 @@ export default function FilePage() {
       }
 
       const aiText = data.output || '';
-
-      // Append to conversation
       const newAssistantMsg: ConversationMessage = { role: 'assistant', content: aiText };
       const updatedConversation = [...currentConversation, newAssistantMsg];
       setConversation(updatedConversation);
 
-      // Append to terminal output
       const outputToAdd = aiText ? (aiText + '\n') : '';
       setOutput(prev => {
         const systemHeader = `> Compiling C# code...\n> Using AI Compiler (OpenRouter)...\n\n`;
@@ -182,12 +189,10 @@ export default function FilePage() {
     setIsWaitingInput(false);
     setRunning(true);
 
-    // Add user input to conversation
     const newUserMsg: ConversationMessage = { role: 'user', content: `User input: ${userInput}` };
     const updatedConversation = [...conversation, newUserMsg];
     setConversation(updatedConversation);
 
-    // Continue with accumulated inputs and updated conversation
     await runAIStep(newInputs, updatedConversation, runIdRef.current);
   };
 
@@ -199,6 +204,8 @@ export default function FilePage() {
     if (mode === 'simulation') runSimulation();
     else startAI();
   };
+
+  const topicText = file?.topic || file?.name || '';
 
   if (!file) {
     return (
@@ -227,15 +234,28 @@ export default function FilePage() {
                 <ArrowLeft size={22} className="text-dark-300" />
               </button>
             </Link>
-            <div className="min-w-0">
-              <h1
-                className={`text-base font-bold text-white cursor-pointer transition-all ${expandedTopic ? '' : 'truncate'}`}
-                onClick={() => setExpandedTopic(!expandedTopic)}
-                title="Click to expand/collapse topic"
-              >
-                {file.topic || file.name}
-              </h1>
-              <p className="text-sm text-dark-400 truncate">{file.name}</p>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-col gap-0.5">
+                <div
+                  ref={topicRef}
+                  className={`text-base font-bold text-white cursor-pointer transition-all leading-snug ${
+                    topicExpanded ? 'line-clamp-3' : 'truncate'
+                  }`}
+                  onClick={() => setTopicExpanded(!topicExpanded)}
+                  title="Click to expand/collapse"
+                >
+                  {topicText}
+                </div>
+                {topicExpanded && needsMore && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowTopicModal(true); }}
+                    className="text-xs text-accent-blue hover:text-blue-400 font-medium self-start mt-0.5 transition-colors"
+                  >
+                    ...more
+                  </button>
+                )}
+                <p className="text-sm text-dark-400 truncate">{file.name}</p>
+              </div>
             </div>
           </div>
 
@@ -361,6 +381,54 @@ export default function FilePage() {
           </motion.div>
         )}
       </div>
+
+      {/* TOPIC MODAL */}
+      <AnimatePresence>
+        {showTopicModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+            onClick={() => setShowTopicModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 30 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 30 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-dark-800 border border-dark-500/50 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden"
+            >
+              <div className="bg-dark-700 px-5 py-4 flex items-center justify-between border-b border-dark-500/30">
+                <div className="flex items-center gap-3">
+                  <FileCode size={18} className="text-accent-blue" />
+                  <span className="text-sm font-semibold text-dark-200">Full Topic</span>
+                </div>
+                <button
+                  onClick={() => setShowTopicModal(false)}
+                  className="text-dark-400 hover:text-white transition-colors p-1.5"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="p-6 max-h-[60vh] overflow-auto">
+                <p className="text-base text-white leading-relaxed whitespace-pre-wrap">
+                  {topicText}
+                </p>
+              </div>
+              <div className="bg-dark-700 px-5 py-3 border-t border-dark-500/30 flex justify-end">
+                <button
+                  onClick={() => setShowTopicModal(false)}
+                  className="px-4 py-2 text-xs rounded-lg bg-accent-blue hover:bg-blue-500 text-white transition-colors font-medium"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {showTerm && (
