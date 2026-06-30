@@ -34,6 +34,7 @@ export default function FilePage() {
   const [mode, setMode] = useState<'simulation' | 'ai'>('simulation');
   const [allInputs, setAllInputs] = useState<string[]>([]);
   const [conversation, setConversation] = useState<ConversationMessage[]>([]);
+  const [expandedTopic, setExpandedTopic] = useState(false);
   const outputRef = useRef<HTMLDivElement>(null);
   const runIdRef = useRef(0);
 
@@ -227,7 +228,13 @@ export default function FilePage() {
               </button>
             </Link>
             <div className="min-w-0">
-              <h1 className="text-base font-bold text-white truncate">{file.topic || file.name}</h1>
+              <h1
+                className={`text-base font-bold text-white cursor-pointer transition-all ${expandedTopic ? '' : 'truncate'}`}
+                onClick={() => setExpandedTopic(!expandedTopic)}
+                title="Click to expand/collapse topic"
+              >
+                {file.topic || file.name}
+              </h1>
               <p className="text-sm text-dark-400 truncate">{file.name}</p>
             </div>
           </div>
