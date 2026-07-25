@@ -4,7 +4,7 @@ import { Sun, Moon, Github, Heart } from 'lucide-react';
 import { useTheme } from './theme-provider';
 
 export default function Footer() {
-  const { theme, toggleTheme } = useTheme();
+  const { theme, toggleTheme, mounted } = useTheme();
 
   return (
     <footer className="border-t border-dark-500/30 bg-dark-800/50 backdrop-blur-sm mt-auto">
@@ -37,8 +37,18 @@ export default function Footer() {
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-dark-700 hover:bg-dark-600 border border-dark-500/30 text-dark-200 text-sm transition-all"
             title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           >
-            {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-            <span className="hidden sm:inline">{theme === 'dark' ? 'Light' : 'Dark'}</span>
+            {/* Show generic icon during SSR to avoid hydration mismatch */}
+            {mounted ? (
+              <>
+                {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+                <span className="hidden sm:inline">{theme === 'dark' ? 'Light' : 'Dark'}</span>
+              </>
+            ) : (
+              <>
+                <Sun size={16} className="opacity-50" />
+                <span className="hidden sm:inline opacity-50">Theme</span>
+              </>
+            )}
           </button>
         </div>
       </div>
