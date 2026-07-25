@@ -2,11 +2,18 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Copy, Play, X, Terminal, ArrowLeft, Zap, MousePointerClick, Check, Send, Loader2, FileCode } from 'lucide-react';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { Copy, Play, X, Terminal, ArrowLeft, Zap, MousePointerClick, Check, Send, Loader2, FileCode, Share2, Download } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase/client';
 import Link from 'next/link';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
+
+// Lazy-load syntax highlighter component to reduce bundle size
+const SyntaxHighlighter = dynamic(
+  () => import('react-syntax-highlighter').then((mod) => mod.Prism),
+  { ssr: false, loading: () => <div className="p-8 text-dark-400 animate-pulse">Loading code viewer...</div> }
+);
 
 type FileData = {
   id: string;
@@ -31,15 +38,35 @@ export default function FilePage() {
   const [userInput, setUserInput] = useState('');
   const [isWaitingInput, setIsWaitingInput] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [shared, setShared] = useState(false);
   const [mode, setMode] = useState<'simulation' | 'ai'>('simulation');
   const [allInputs, setAllInputs] = useState<string[]>([]);
   const [conversation, setConversation] = useState<ConversationMessage[]>([]);
   const [showTopicModal, setShowTopicModal] = useState(false);
   const [topicExpanded, setTopicExpanded] = useState(false);
   const [needsMore, setNeedsMore] = useState(false);
+  const [isDarkTheme, setIsDarkTheme] = useState(true);
+  const [highlighterReady, setHighlighterReady] = useState(false);
   const topicRef = useRef<HTMLDivElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const runIdRef = useRef(0);
+
+  // Detect theme
+  useEffect(() => {
+    const checkTheme = () => {
+      const isDark = document.documentElement.classList.contains('dark');
+      setIsDarkTheme(isDark);
+    };
+    checkTheme();
+    const observer = new MutationObserver(checkTheme);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+
+  // Mark highlighter as ready after mount
+  useEffect(() => {
+    setHighlighterReady(true);
+  }, []);
 
   useEffect(() => {
     if (id) {
@@ -57,17 +84,15 @@ export default function FilePage() {
     if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
   }, [output]);
 
-  // Check if topic text exceeds 3 lines when expanded
+  // Check if topic text exceeds 3 lines
   useEffect(() => {
     if (topicRef.current && file?.topic) {
       const el = topicRef.current;
-      // Temporarily remove line-clamp to measure full height
-      const originalClass = el.className;
-      el.className = originalClass.replace('line-clamp-3', '').trim();
-      const fullHeight = el.scrollHeight;
-      el.className = originalClass;
-      const clampedHeight = el.clientHeight;
-      setNeedsMore(fullHeight > clampedHeight + 2);
+      if (!topicExpanded) {
+        setNeedsMore(el.scrollHeight > el.clientHeight + 2);
+      } else {
+        setNeedsMore(false);
+      }
     }
   }, [file?.topic, topicExpanded]);
 
@@ -77,6 +102,26 @@ export default function FilePage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
+  };
+
+  const handleShare = () => {
+    const url = window.location.href;
+    navigator.clipboard.writeText(url);
+    setShared(true);
+    setTimeout(() => setShared(false), 2000);
+  };
+
+  const handleDownload = () => {
+    if (!file) return;
+    const blob = new Blob([file.content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.name.endsWith('.cs') ? file.name : `${file.name}.cs`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   // SIMULATION MODE
@@ -206,6 +251,7 @@ export default function FilePage() {
   };
 
   const topicText = file?.topic || file?.name || '';
+  const currentStyle = isDarkTheme ? vscDarkPlus : oneLight;
 
   if (!file) {
     return (
@@ -221,11 +267,16 @@ export default function FilePage() {
   const hasSimulation = !!file.simulation_output;
 
   return (
-    <div className="min-h-screen bg-dark-900">
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: 'easeOut' }}
+      className="min-h-screen bg-dark-900 flex flex-col"
+    >
       <motion.header
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        className="sticky top-0 z-40 glass border-b border-dark-500/50"
+        className="sticky top-0 z-40 glass border-b border-dark-500/30"
       >
         <div className="max-w-6xl mx-auto px-4 md:px-8 h-20 flex items-center justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0">
@@ -239,14 +290,14 @@ export default function FilePage() {
                 <div
                   ref={topicRef}
                   className={`text-base font-bold text-white cursor-pointer transition-all leading-snug ${
-                    topicExpanded ? 'line-clamp-3' : 'truncate'
+                    topicExpanded ? '' : 'line-clamp-2'
                   }`}
                   onClick={() => setTopicExpanded(!topicExpanded)}
                   title="Click to expand/collapse"
                 >
                   {topicText}
                 </div>
-                {topicExpanded && needsMore && (
+                {!topicExpanded && needsMore && (
                   <button
                     onClick={(e) => { e.stopPropagation(); setShowTopicModal(true); }}
                     className="text-xs text-accent-blue hover:text-blue-400 font-medium self-start mt-0.5 transition-colors"
@@ -254,15 +305,41 @@ export default function FilePage() {
                     ...more
                   </button>
                 )}
+                {topicExpanded && needsMore && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setTopicExpanded(false); }}
+                    className="text-xs text-accent-blue hover:text-blue-400 font-medium self-start mt-0.5 transition-colors"
+                  >
+                    Show less
+                  </button>
+                )}
                 <p className="text-sm text-dark-400 truncate">{file.name}</p>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 flex-shrink-0">
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={handleShare}
+              className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-xl bg-dark-700 hover:bg-dark-600 border border-dark-500/50 text-sm font-medium transition-all"
+              title="Copy shareable link"
+            >
+              {shared ? <Check size={16} className="text-accent-green" /> : <Share2 size={16} className="text-dark-300" />}
+              <span className={shared ? 'text-accent-green' : 'text-dark-200'}>
+                {shared ? 'Copied' : 'Share'}
+              </span>
+            </button>
+            <button
+              onClick={handleDownload}
+              className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-xl bg-dark-700 hover:bg-dark-600 border border-dark-500/50 text-sm font-medium transition-all"
+              title="Download as .cs file"
+            >
+              <Download size={16} className="text-dark-300" />
+              <span className="text-dark-200">Download</span>
+            </button>
             <button
               onClick={handleCopy}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-dark-700 hover:bg-dark-600 border border-dark-500/50 text-sm font-medium transition-all"
+              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-dark-700 hover:bg-dark-600 border border-dark-500/50 text-sm font-medium transition-all"
             >
               {copied ? <Check size={16} className="text-accent-green" /> : <Copy size={16} className="text-dark-300" />}
               <span className={copied ? 'text-accent-green' : 'text-dark-200'}>
@@ -303,7 +380,7 @@ export default function FilePage() {
         </div>
       </motion.header>
 
-      <div className="max-w-6xl mx-auto px-4 md:px-8 py-8">
+      <div className="max-w-6xl mx-auto px-4 md:px-8 py-8 flex-1">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -323,26 +400,30 @@ export default function FilePage() {
             </div>
           </div>
 
-          <SyntaxHighlighter
-            language="csharp"
-            style={vscDarkPlus}
-            showLineNumbers
-            customStyle={{
-              margin: 0,
-              padding: '2rem',
-              fontSize: '15px',
-              lineHeight: '1.8',
-              background: '#0d1117',
-              fontFamily: "'JetBrains Mono', monospace",
-            }}
-            lineNumberStyle={{
-              color: '#484f58',
-              paddingRight: '2rem',
-              fontSize: '13px',
-            }}
-          >
-            {file.content}
-          </SyntaxHighlighter>
+          {highlighterReady ? (
+            <SyntaxHighlighter
+              language="csharp"
+              style={currentStyle}
+              showLineNumbers
+              customStyle={{
+                margin: 0,
+                padding: '2rem',
+                fontSize: '15px',
+                lineHeight: '1.8',
+                background: isDarkTheme ? '#0d1117' : '#f6f8fa',
+                fontFamily: "'JetBrains Mono', monospace",
+              }}
+              lineNumberStyle={{
+                color: isDarkTheme ? '#484f58' : '#9aa0a6',
+                paddingRight: '2rem',
+                fontSize: '13px',
+              }}
+            >
+              {file.content}
+            </SyntaxHighlighter>
+          ) : (
+            <div className="p-8 bg-dark-800 text-dark-400 animate-pulse">Loading syntax highlighter...</div>
+          )}
         </motion.div>
 
         {hasSimulation && mode === 'simulation' && (
@@ -533,6 +614,6 @@ export default function FilePage() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </motion.div>
   );
 }

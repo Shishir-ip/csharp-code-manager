@@ -1,27 +1,50 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/supabase/client';
-import { FolderPlus, FilePlus, Save, Trash2, Folder, FileCode, LogOut, MousePointerClick, Shield, ArrowLeft, Pencil, X } from 'lucide-react';
+import {
+  FolderPlus, FilePlus, Save, Trash2, Folder, FileCode, LogOut,
+  MousePointerClick, Shield, ArrowLeft, Pencil, X, CheckSquare,
+  Square, BarChart3, Code, Eye, EyeOff, Move
+} from 'lucide-react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+
+const SyntaxHighlighter = dynamic(
+  () => import('react-syntax-highlighter').then((mod) => mod.Prism),
+  { ssr: false }
+);
 
 type FolderItem = { id: string; name: string; parent_id: string | null; };
-type FileItem = { id: string; name: string; folder_id: string | null; topic: string | null; content: string; simulation_output: string | null; simulation_input: string | null; };
+type FileItem = {
+  id: string;
+  name: string;
+  folder_id: string | null;
+  topic: string | null;
+  content: string;
+  simulation_output: string | null;
+  simulation_input: string | null;
+  created_at?: string;
+};
 
 export default function AdminPage() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [folders, setFolders] = useState<FolderItem[]>([]);
   const [files, setFiles] = useState<FileItem[]>([]);
-  const [activeTab, setActiveTab] = useState<'folders' | 'files'>('files');
+  const [activeTab, setActiveTab] = useState<'files' | 'folders'>('files');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [adminEmail, setAdminEmail] = useState<string | null>(null);
   const [loginError, setLoginError] = useState('');
 
+  // Folder form
   const [folderName, setFolderName] = useState('');
   const [parentFolder, setParentFolder] = useState('');
+
+  // File form
   const [fileName, setFileName] = useState('');
   const [fileFolder, setFileFolder] = useState('');
   const [fileTopic, setFileTopic] = useState('');
@@ -29,6 +52,7 @@ export default function AdminPage() {
   const [simOutput, setSimOutput] = useState('');
   const [simInput, setSimInput] = useState('');
   const [useSimulation, setUseSimulation] = useState(true);
+  const [showPreview, setShowPreview] = useState(false);
 
   // Edit state
   const [editingFile, setEditingFile] = useState<FileItem | null>(null);
@@ -40,16 +64,19 @@ export default function AdminPage() {
   const [editSimInput, setEditSimInput] = useState('');
   const [editUseSim, setEditUseSim] = useState(true);
   const [editLoading, setEditLoading] = useState(false);
+  const [editShowPreview, setEditShowPreview] = useState(false);
 
-  useEffect(() => {
-    checkAdmin();
-  }, []);
+  // Bulk delete state
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [selectedFolders, setSelectedFolders] = useState<Set<string>>(new Set());
+  const [showMoveModal, setShowMoveModal] = useState(false);
+  const [moveTargetFolder, setMoveTargetFolder] = useState('');
+
+  useEffect(() => { checkAdmin(); }, []);
 
   async function checkAdmin() {
     const { data: settings } = await supabase.from('settings').select('*').eq('key', 'admin_email').single();
-    if (settings?.value) {
-      setAdminEmail(settings.value);
-    }
+    if (settings?.value) setAdminEmail(settings.value);
     const { data } = await supabase.auth.getUser();
     if (data.user) {
       if (settings?.value && data.user.email !== settings.value) {
@@ -96,6 +123,8 @@ export default function AdminPage() {
     ]);
     setFolders(fData || []);
     setFiles(fiData || []);
+    setSelectedFiles(new Set());
+    setSelectedFolders(new Set());
   }
 
   function showMessage(msg: string) {
@@ -150,6 +179,42 @@ export default function AdminPage() {
     await supabase.from('files').delete().eq('id', id); loadData();
   }
 
+  // BULK DELETE
+  async function bulkDeleteFiles() {
+    if (selectedFiles.size === 0) return;
+    if (!confirm(`Delete ${selectedFiles.size} file(s)?`)) return;
+    const ids = Array.from(selectedFiles);
+    for (const id of ids) {
+      await supabase.from('files').delete().eq('id', id);
+    }
+    showMessage(`${ids.length} file(s) deleted`);
+    loadData();
+  }
+
+  async function bulkDeleteFolders() {
+    if (selectedFolders.size === 0) return;
+    if (!confirm(`Delete ${selectedFolders.size} folder(s) and all their contents?`)) return;
+    const ids = Array.from(selectedFolders);
+    for (const id of ids) {
+      await supabase.from('folders').delete().eq('id', id);
+    }
+    showMessage(`${ids.length} folder(s) deleted`);
+    loadData();
+  }
+
+  // BULK MOVE
+  async function bulkMoveFiles() {
+    if (selectedFiles.size === 0 || !moveTargetFolder) return;
+    const ids = Array.from(selectedFiles);
+    for (const id of ids) {
+      await supabase.from('files').update({ folder_id: moveTargetFolder }).eq('id', id);
+    }
+    showMessage(`${ids.length} file(s) moved`);
+    setShowMoveModal(false);
+    setMoveTargetFolder('');
+    loadData();
+  }
+
   // EDIT FILE
   function openEditModal(fileItem: FileItem) {
     setEditingFile(fileItem);
@@ -160,6 +225,7 @@ export default function AdminPage() {
     setEditSimOutput(fileItem.simulation_output || '');
     setEditSimInput(fileItem.simulation_input || '');
     setEditUseSim(!!fileItem.simulation_output);
+    setEditShowPreview(false);
   }
 
   function closeEditModal() {
@@ -171,6 +237,7 @@ export default function AdminPage() {
     setEditSimOutput('');
     setEditSimInput('');
     setEditUseSim(true);
+    setEditShowPreview(false);
   }
 
   async function saveEditFile() {
@@ -195,6 +262,38 @@ export default function AdminPage() {
     showMessage('File updated!');
     loadData();
   }
+
+  // STATS
+  const stats = useMemo(() => {
+    const totalFiles = files.length;
+    const totalFolders = folders.length;
+    const totalLines = files.reduce((sum, f) => sum + (f.content?.split('\n').length || 0), 0);
+    const withSim = files.filter(f => !!f.simulation_output).length;
+    const withoutSim = totalFiles - withSim;
+    return { totalFiles, totalFolders, totalLines, withSim, withoutSim };
+  }, [files, folders]);
+
+  // Selection helpers
+  const toggleFileSelection = (id: string) => {
+    const next = new Set(selectedFiles);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedFiles(next);
+  };
+  const toggleFolderSelection = (id: string) => {
+    const next = new Set(selectedFolders);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedFolders(next);
+  };
+  const selectAllFiles = () => {
+    if (selectedFiles.size === files.length) setSelectedFiles(new Set());
+    else setSelectedFiles(new Set(files.map(f => f.id)));
+  };
+  const selectAllFolders = () => {
+    if (selectedFolders.size === folders.length) setSelectedFolders(new Set());
+    else setSelectedFolders(new Set(folders.map(f => f.id)));
+  };
 
   // LOGIN SCREEN
   if (!user) {
@@ -245,7 +344,7 @@ export default function AdminPage() {
   // ADMIN DASHBOARD
   return (
     <div className="min-h-screen bg-dark-900">
-      <header className="sticky top-0 z-40 glass border-b border-dark-500/50">
+      <header className="sticky top-0 z-40 glass border-b border-dark-500/30">
         <div className="max-w-5xl mx-auto px-4 md:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent-blue to-accent-purple flex items-center justify-center">
@@ -278,6 +377,47 @@ export default function AdminPage() {
         )}
       </AnimatePresence>
 
+      {/* STATS CARDS */}
+      <div className="max-w-5xl mx-auto px-4 md:px-6 pt-6">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+          <div className="bg-dark-800 rounded-xl border border-dark-500/30 p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <FileCode size={14} className="text-accent-blue" />
+              <span className="text-[10px] text-dark-400 uppercase tracking-wider">Files</span>
+            </div>
+            <p className="text-2xl font-bold text-white">{stats.totalFiles}</p>
+          </div>
+          <div className="bg-dark-800 rounded-xl border border-dark-500/30 p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Folder size={14} className="text-accent-purple" />
+              <span className="text-[10px] text-dark-400 uppercase tracking-wider">Folders</span>
+            </div>
+            <p className="text-2xl font-bold text-white">{stats.totalFolders}</p>
+          </div>
+          <div className="bg-dark-800 rounded-xl border border-dark-500/30 p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Code size={14} className="text-accent-green" />
+              <span className="text-[10px] text-dark-400 uppercase tracking-wider">Lines</span>
+            </div>
+            <p className="text-2xl font-bold text-white">{stats.totalLines.toLocaleString()}</p>
+          </div>
+          <div className="bg-dark-800 rounded-xl border border-dark-500/30 p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <MousePointerClick size={14} className="text-purple-400" />
+              <span className="text-[10px] text-dark-400 uppercase tracking-wider">With Sim</span>
+            </div>
+            <p className="text-2xl font-bold text-white">{stats.withSim}</p>
+          </div>
+          <div className="bg-dark-800 rounded-xl border border-dark-500/30 p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <ZapIcon size={14} className="text-accent-orange" />
+              <span className="text-[10px] text-dark-400 uppercase tracking-wider">AI Only</span>
+            </div>
+            <p className="text-2xl font-bold text-white">{stats.withoutSim}</p>
+          </div>
+        </div>
+      </div>
+
       {/* EDIT FILE MODAL */}
       <AnimatePresence>
         {editingFile && (
@@ -293,7 +433,7 @@ export default function AdminPage() {
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 20 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-dark-800 border border-dark-500/50 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl"
+              className="bg-dark-800 border border-dark-500/50 rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-2xl"
             >
               <div className="bg-dark-700 px-5 py-4 flex items-center justify-between border-b border-dark-500/30 sticky top-0">
                 <div className="flex items-center gap-3">
@@ -309,21 +449,14 @@ export default function AdminPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-dark-300 mb-1.5">File Name</label>
-                    <input
-                      type="text"
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
+                    <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)}
                       placeholder="e.g. HelloWorld"
-                      className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm text-dark-100 placeholder-dark-500"
-                    />
+                      className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm text-dark-100 placeholder-dark-500" />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-dark-300 mb-1.5">Folder</label>
-                    <select
-                      value={editFolder}
-                      onChange={(e) => setEditFolder(e.target.value)}
-                      className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm text-dark-100"
-                    >
+                    <select value={editFolder} onChange={(e) => setEditFolder(e.target.value)}
+                      className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm text-dark-100">
                       <option value="" className="bg-dark-800">Select a folder...</option>
                       {folders.map((f) => (
                         <option key={f.id} value={f.id} className="bg-dark-800">{f.name}</option>
@@ -334,34 +467,49 @@ export default function AdminPage() {
 
                 <div>
                   <label className="block text-xs font-medium text-dark-300 mb-1.5">Topic / Question</label>
-                  <input
-                    type="text"
-                    value={editTopic}
-                    onChange={(e) => setEditTopic(e.target.value)}
+                  <input type="text" value={editTopic} onChange={(e) => setEditTopic(e.target.value)}
                     placeholder="e.g. Lab 1: Calculate factorial"
-                    className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm text-dark-100 placeholder-dark-500"
-                  />
+                    className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm text-dark-100 placeholder-dark-500" />
                 </div>
 
+                {/* Code with Preview Toggle */}
                 <div>
-                  <label className="block text-xs font-medium text-dark-300 mb-1.5">C# Code</label>
-                  <textarea
-                    value={editContent}
-                    onChange={(e) => setEditContent(e.target.value)}
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-medium text-dark-300">C# Code</label>
+                    <button
+                      onClick={() => setEditShowPreview(!editShowPreview)}
+                      className="flex items-center gap-1 text-xs text-accent-blue hover:text-blue-400 transition-colors"
+                    >
+                      {editShowPreview ? <EyeOff size={12} /> : <Eye size={12} />}
+                      {editShowPreview ? 'Hide Preview' : 'Show Preview'}
+                    </button>
+                  </div>
+                  <textarea value={editContent} onChange={(e) => setEditContent(e.target.value)}
                     placeholder="using System; class Program { static void Main() { Console.WriteLine(&quot;Hello&quot;); } }"
-                    className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm font-mono text-dark-100 placeholder-dark-500 min-h-[200px] resize-y"
-                  />
+                    className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm font-mono text-dark-100 placeholder-dark-500 min-h-[200px] resize-y" />
+                  {editShowPreview && editContent && (
+                    <div className="mt-3 rounded-xl overflow-hidden border border-dark-500/30">
+                      <div className="bg-dark-700 px-3 py-2 text-xs text-dark-300 font-medium border-b border-dark-500/20 flex items-center gap-2">
+                        <Code size={12} /> Preview
+                      </div>
+                      <SyntaxHighlighter
+                        language="csharp"
+                        style={vscDarkPlus}
+                        customStyle={{ margin: 0, padding: '1rem', fontSize: '13px', background: '#0d1117' }}
+                        lineNumberStyle={{ color: '#484f58', paddingRight: '1rem', fontSize: '11px' }}
+                        showLineNumbers
+                      >
+                        {editContent}
+                      </SyntaxHighlighter>
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-4 rounded-xl bg-purple-500/5 border border-purple-500/20">
                   <div className="flex items-center gap-2 mb-2">
-                    <input
-                      type="checkbox"
-                      id="editSimToggle"
-                      checked={editUseSim}
+                    <input type="checkbox" id="editSimToggle" checked={editUseSim}
                       onChange={(e) => setEditUseSim(e.target.checked)}
-                      className="w-4 h-4 rounded border-dark-500 bg-dark-900 text-purple-500"
-                    />
+                      className="w-4 h-4 rounded border-dark-500 bg-dark-900 text-purple-500" />
                     <label htmlFor="editSimToggle" className="text-xs font-medium text-purple-300 flex items-center gap-2 cursor-pointer">
                       <MousePointerClick size={14} /> Enable Simulation Mode
                     </label>
@@ -370,43 +518,73 @@ export default function AdminPage() {
                     <div className="space-y-3">
                       <div>
                         <label className="block text-[11px] font-medium text-purple-400/80 mb-1">Expected Input (optional)</label>
-                        <textarea
-                          value={editSimInput}
-                          onChange={(e) => setEditSimInput(e.target.value)}
+                        <textarea value={editSimInput} onChange={(e) => setEditSimInput(e.target.value)}
                           placeholder="5&#10;John"
-                          className="w-full px-3 py-2 bg-dark-900 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-400 text-xs font-mono text-dark-100 placeholder-dark-500 resize-y"
-                          rows={2}
-                        />
+                          className="w-full px-3 py-2 bg-dark-900 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-400 text-xs font-mono text-dark-100 placeholder-dark-500 resize-y" rows={2} />
                       </div>
                       <div>
                         <label className="block text-[11px] font-medium text-purple-400/80 mb-1">Expected Output</label>
-                        <textarea
-                          value={editSimOutput}
-                          onChange={(e) => setEditSimOutput(e.target.value)}
+                        <textarea value={editSimOutput} onChange={(e) => setEditSimOutput(e.target.value)}
                           placeholder="Enter a number: 5&#10;Factorial is: 120"
-                          className="w-full px-3 py-2 bg-dark-900 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-400 text-xs font-mono text-dark-100 placeholder-dark-500 resize-y"
-                          rows={4}
-                        />
+                          className="w-full px-3 py-2 bg-dark-900 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-400 text-xs font-mono text-dark-100 placeholder-dark-500 resize-y" rows={4} />
                       </div>
                     </div>
                   )}
                 </div>
 
                 <div className="flex gap-3 pt-2">
-                  <button
-                    onClick={saveEditFile}
-                    disabled={editLoading}
-                    className="flex items-center gap-2 px-4 py-2 bg-accent-blue hover:bg-blue-500 disabled:bg-blue-500/30 text-white rounded-lg text-xs font-medium transition-all"
-                  >
+                  <button onClick={saveEditFile} disabled={editLoading}
+                    className="flex items-center gap-2 px-4 py-2 bg-accent-blue hover:bg-blue-500 disabled:bg-blue-500/30 text-white rounded-lg text-xs font-medium transition-all">
                     <Save size={14} /> {editLoading ? 'Saving...' : 'Update File'}
                   </button>
-                  <button
-                    onClick={closeEditModal}
-                    className="flex items-center gap-2 px-4 py-2 bg-dark-700 hover:bg-dark-600 text-dark-200 rounded-lg text-xs font-medium transition-all"
-                  >
+                  <button onClick={closeEditModal}
+                    className="flex items-center gap-2 px-4 py-2 bg-dark-700 hover:bg-dark-600 text-dark-200 rounded-lg text-xs font-medium transition-all">
                     <X size={14} /> Cancel
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* BULK MOVE MODAL */}
+      <AnimatePresence>
+        {showMoveModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+            onClick={() => setShowMoveModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-dark-800 border border-dark-500/50 rounded-2xl w-full max-w-sm shadow-2xl p-6"
+            >
+              <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
+                <Move size={16} className="text-accent-blue" /> Move {selectedFiles.size} File(s)
+              </h3>
+              <label className="block text-xs font-medium text-dark-300 mb-1.5">Target Folder</label>
+              <select value={moveTargetFolder} onChange={(e) => setMoveTargetFolder(e.target.value)}
+                className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm text-dark-100 mb-4">
+                <option value="" className="bg-dark-800">Select a folder...</option>
+                {folders.map((f) => (
+                  <option key={f.id} value={f.id} className="bg-dark-800">{f.name}</option>
+                ))}
+              </select>
+              <div className="flex gap-3">
+                <button onClick={bulkMoveFiles} disabled={!moveTargetFolder}
+                  className="flex-1 py-2 bg-accent-blue hover:bg-blue-500 disabled:bg-blue-500/30 text-white rounded-lg text-xs font-medium transition-all">
+                  Move
+                </button>
+                <button onClick={() => { setShowMoveModal(false); setMoveTargetFolder(''); }}
+                  className="flex-1 py-2 bg-dark-700 hover:bg-dark-600 text-dark-200 rounded-lg text-xs font-medium transition-all">
+                  Cancel
+                </button>
               </div>
             </motion.div>
           </motion.div>
@@ -427,6 +605,7 @@ export default function AdminPage() {
 
         {activeTab === 'files' && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+            {/* Add File Form */}
             <div className="bg-dark-800 rounded-xl border border-dark-500/30 p-6">
               <h2 className="text-sm font-bold text-white mb-5 flex items-center gap-2">
                 <FileCode size={16} className="text-accent-blue" /> Add New C# File
@@ -451,11 +630,38 @@ export default function AdminPage() {
                 <input type="text" value={fileTopic} onChange={(e) => setFileTopic(e.target.value)} placeholder="e.g. Lab 1: Calculate factorial"
                   className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm text-dark-100 placeholder-dark-500" />
               </div>
+
+              {/* Code with Preview Toggle */}
               <div className="mb-4">
-                <label className="block text-xs font-medium text-dark-300 mb-1.5">C# Code</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-medium text-dark-300">C# Code</label>
+                  <button
+                    onClick={() => setShowPreview(!showPreview)}
+                    className="flex items-center gap-1 text-xs text-accent-blue hover:text-blue-400 transition-colors"
+                  >
+                    {showPreview ? <EyeOff size={12} /> : <Eye size={12} />}
+                    {showPreview ? 'Hide Preview' : 'Show Preview'}
+                  </button>
+                </div>
                 <textarea value={fileContent} onChange={(e) => setFileContent(e.target.value)}
                   placeholder="using System; class Program { static void Main() { Console.WriteLine(&quot;Hello&quot;); } }"
                   className="w-full px-3 py-2 bg-dark-900 border border-dark-500/50 rounded-lg focus:outline-none focus:border-accent-blue text-sm font-mono text-dark-100 placeholder-dark-500 min-h-[200px] resize-y" />
+                {showPreview && fileContent && (
+                  <div className="mt-3 rounded-xl overflow-hidden border border-dark-500/30">
+                    <div className="bg-dark-700 px-3 py-2 text-xs text-dark-300 font-medium border-b border-dark-500/20 flex items-center gap-2">
+                      <Code size={12} /> Preview
+                    </div>
+                    <SyntaxHighlighter
+                      language="csharp"
+                      style={vscDarkPlus}
+                      customStyle={{ margin: 0, padding: '1rem', fontSize: '13px', background: '#0d1117' }}
+                      lineNumberStyle={{ color: '#484f58', paddingRight: '1rem', fontSize: '11px' }}
+                      showLineNumbers
+                    >
+                      {fileContent}
+                    </SyntaxHighlighter>
+                  </div>
+                )}
               </div>
 
               <div className="mb-5 p-4 rounded-xl bg-purple-500/5 border border-purple-500/20">
@@ -489,22 +695,56 @@ export default function AdminPage() {
               </button>
             </div>
 
+            {/* Existing Files with Bulk Actions */}
             <div className="bg-dark-800 rounded-xl border border-dark-500/30 p-6">
-              <h2 className="text-sm font-bold text-white mb-4">Existing Files ({files.length})</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-bold text-white">Existing Files ({files.length})</h2>
+                {selectedFiles.size > 0 && (
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setShowMoveModal(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-accent-blue/20 hover:bg-accent-blue/30 text-accent-blue transition-colors">
+                      <Move size={12} /> Move ({selectedFiles.size})
+                    </button>
+                    <button onClick={bulkDeleteFiles}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-accent-red/20 hover:bg-accent-red/30 text-accent-red transition-colors">
+                      <Trash2 size={12} /> Delete ({selectedFiles.size})
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <div className="space-y-1">
+                {/* Header row with select all */}
+                <div className="flex items-center gap-3 px-3 py-2 text-[10px] text-dark-500 uppercase tracking-wider border-b border-dark-500/20">
+                  <button onClick={selectAllFiles} className="hover:text-dark-300 transition-colors">
+                    {selectedFiles.size === files.length && files.length > 0 ? <CheckSquare size={14} className="text-accent-blue" /> : <Square size={14} />}
+                  </button>
+                  <span className="flex-1">Name</span>
+                  <span className="hidden sm:block w-32">Topic</span>
+                  <span className="w-16 text-center">Mode</span>
+                  <span className="w-16 text-right">Actions</span>
+                </div>
+
                 {files.map((f) => (
-                  <div key={f.id} className="flex items-center justify-between p-3 bg-dark-700/30 rounded-lg hover:bg-dark-700/60 transition-colors group">
-                    <div className="flex items-center gap-3 min-w-0">
+                  <div key={f.id} className="flex items-center gap-3 px-3 py-2.5 bg-dark-700/30 rounded-lg hover:bg-dark-700/60 transition-colors group">
+                    <button onClick={() => toggleFileSelection(f.id)} className="flex-shrink-0">
+                      {selectedFiles.has(f.id) ? <CheckSquare size={16} className="text-accent-blue" /> : <Square size={16} className="text-dark-500 group-hover:text-dark-400" />}
+                    </button>
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
                       <FileCode size={16} className="text-accent-orange flex-shrink-0" />
                       <div className="min-w-0">
                         <p className="text-xs font-medium text-dark-200 truncate">{f.name}</p>
-                        <p className="text-[10px] text-dark-500 truncate">{f.topic || 'No topic'}</p>
                       </div>
-                      {f.simulation_output && (
-                        <span className="text-[10px] bg-purple-500/15 text-purple-400 px-2 py-0.5 rounded-full font-medium flex-shrink-0">Sim</span>
+                    </div>
+                    <p className="hidden sm:block text-[10px] text-dark-500 truncate w-32">{f.topic || 'No topic'}</p>
+                    <div className="w-16 text-center">
+                      {f.simulation_output ? (
+                        <span className="text-[10px] bg-purple-500/15 text-purple-400 px-2 py-0.5 rounded-full font-medium">Sim</span>
+                      ) : (
+                        <span className="text-[10px] bg-blue-500/10 text-accent-blue px-2 py-0.5 rounded-full font-medium">AI</span>
                       )}
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 w-16 justify-end">
                       <button onClick={() => openEditModal(f)} className="p-1.5 text-dark-500 hover:text-accent-blue hover:bg-blue-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100">
                         <Pencil size={14} />
                       </button>
@@ -522,6 +762,7 @@ export default function AdminPage() {
 
         {activeTab === 'folders' && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+            {/* Add Folder Form */}
             <div className="bg-dark-800 rounded-xl border border-dark-500/30 p-6">
               <h2 className="text-sm font-bold text-white mb-5 flex items-center gap-2">
                 <FolderPlus size={16} className="text-accent-blue" /> Create New Folder
@@ -547,16 +788,35 @@ export default function AdminPage() {
               </button>
             </div>
 
+            {/* Existing Folders with Bulk Actions */}
             <div className="bg-dark-800 rounded-xl border border-dark-500/30 p-6">
-              <h2 className="text-sm font-bold text-white mb-4">Existing Folders ({folders.length})</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-bold text-white">Existing Folders ({folders.length})</h2>
+                {selectedFolders.size > 0 && (
+                  <button onClick={bulkDeleteFolders}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-accent-red/20 hover:bg-accent-red/30 text-accent-red transition-colors">
+                    <Trash2 size={12} /> Delete ({selectedFolders.size})
+                  </button>
+                )}
+              </div>
               <div className="space-y-1">
+                <div className="flex items-center gap-3 px-3 py-2 text-[10px] text-dark-500 uppercase tracking-wider border-b border-dark-500/20">
+                  <button onClick={selectAllFolders} className="hover:text-dark-300 transition-colors">
+                    {selectedFolders.size === folders.length && folders.length > 0 ? <CheckSquare size={14} className="text-accent-blue" /> : <Square size={14} />}
+                  </button>
+                  <span className="flex-1">Name</span>
+                  <span className="w-16 text-right">Actions</span>
+                </div>
                 {folders.map((f) => (
-                  <div key={f.id} className="flex items-center justify-between p-3 bg-dark-700/30 rounded-lg hover:bg-dark-700/60 transition-colors group">
-                    <div className="flex items-center gap-3">
+                  <div key={f.id} className="flex items-center gap-3 px-3 py-2.5 bg-dark-700/30 rounded-lg hover:bg-dark-700/60 transition-colors group">
+                    <button onClick={() => toggleFolderSelection(f.id)} className="flex-shrink-0">
+                      {selectedFolders.has(f.id) ? <CheckSquare size={16} className="text-accent-blue" /> : <Square size={16} className="text-dark-500 group-hover:text-dark-400" />}
+                    </button>
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
                       <Folder size={16} className="text-accent-blue" />
                       <span className="text-xs font-medium text-dark-200">{f.name}</span>
                     </div>
-                    <button onClick={() => deleteFolder(f.id)} className="p-1.5 text-dark-500 hover:text-accent-red hover:bg-red-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100">
+                    <button onClick={() => deleteFolder(f.id)} className="p-1.5 text-dark-500 hover:text-accent-red hover:bg-red-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100 w-16 text-right">
                       <Trash2 size={14} />
                     </button>
                   </div>
@@ -568,5 +828,14 @@ export default function AdminPage() {
         )}
       </div>
     </div>
+  );
+}
+
+// Small icon component for stats
+function ZapIcon({ size, className }: { size: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+    </svg>
   );
 }

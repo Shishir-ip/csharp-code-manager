@@ -1,31 +1,31 @@
 import type { Config } from "tailwindcss";
+
 const config: Config = {
   content: [
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
   ],
-  darkMode: "class",
   theme: {
     extend: {
       colors: {
         dark: {
-          900: "#0f1117",
-          800: "#161b22",
-          700: "#1c2128",
-          600: "#21262d",
-          500: "#30363d",
-          400: "#484f58",
-          300: "#6e7681",
-          200: "#8b949e",
-          100: "#c9d1d9",
+          900: "var(--bg-900)",
+          800: "var(--bg-800)",
+          700: "var(--bg-700)",
+          600: "var(--bg-600)",
+          500: "var(--bg-500)",
+          400: "var(--bg-400)",
+          300: "var(--bg-300)",
+          200: "var(--bg-200)",
+          100: "var(--bg-100)",
         },
         accent: {
-          blue: "#58a6ff",
-          green: "#3fb950",
-          purple: "#a371f7",
-          orange: "#f0883e",
-          red: "#f85149",
+          blue: "var(--accent-blue)",
+          green: "var(--accent-green)",
+          purple: "var(--accent-purple)",
+          orange: "var(--accent-orange)",
+          red: "var(--accent-red)",
         },
       },
       fontFamily: {
@@ -51,4 +51,5 @@ const config: Config = {
   },
   plugins: [],
 };
+
 export default config;

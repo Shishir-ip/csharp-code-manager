@@ -4,13 +4,63 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
+:root {
+  /* Light theme */
+  --bg-900: #f0f2f5;
+  --bg-800: #ffffff;
+  --bg-700: #f7f8fa;
+  --bg-600: #eef0f4;
+  --bg-500: #dde1e7;
+  --bg-400: #9aa0a6;
+  --bg-300: #5f6368;
+  --bg-200: #3c4043;
+  --bg-100: #202124;
+  --accent-blue: #1a73e8;
+  --accent-green: #34a853;
+  --accent-purple: #7c4dff;
+  --accent-orange: #f9ab00;
+  --accent-red: #ea4335;
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(221, 225, 231, 0.6);
+  --glow-color: rgba(26, 115, 232, 0.15);
+  --code-bg: #f6f8fa;
+  --scrollbar-track: #e8eaed;
+  --scrollbar-thumb: #c1c7cd;
+  --scrollbar-thumb-hover: #9aa0a6;
+}
+
+.dark {
+  /* Dark theme */
+  --bg-900: #0f1117;
+  --bg-800: #161b22;
+  --bg-700: #1c2128;
+  --bg-600: #21262d;
+  --bg-500: #30363d;
+  --bg-400: #484f58;
+  --bg-300: #6e7681;
+  --bg-200: #8b949e;
+  --bg-100: #c9d1d9;
+  --accent-blue: #58a6ff;
+  --accent-green: #3fb950;
+  --accent-purple: #a371f7;
+  --accent-orange: #f0883e;
+  --accent-red: #f85149;
+  --glass-bg: rgba(22, 27, 34, 0.8);
+  --glass-border: rgba(48, 54, 61, 0.6);
+  --glow-color: rgba(88, 166, 255, 0.15);
+  --code-bg: #0d1117;
+  --scrollbar-track: #161b22;
+  --scrollbar-thumb: #30363d;
+  --scrollbar-thumb-hover: #484f58;
+}
+
 html {
   scroll-behavior: smooth;
 }
 
 body {
-  background-color: #0f1117;
-  color: #e6edf3;
+  background-color: var(--bg-900);
+  color: var(--bg-100);
   font-family: 'Inter', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -23,16 +73,16 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #161b22;
+  background: var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #30363d;
+  background: var(--scrollbar-thumb);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #484f58;
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* Syntax highlighter overrides */
@@ -53,13 +103,40 @@ pre {
 
 /* Glass effect */
 .glass {
-  background: rgba(22, 27, 34, 0.8);
+  background: var(--glass-bg);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(48, 54, 61, 0.6);
+  border: 1px solid var(--glass-border);
 }
 
 /* Hover glow */
 .hover-glow:hover {
-  box-shadow: 0 0 20px rgba(88, 166, 255, 0.15);
+  box-shadow: 0 0 20px var(--glow-color);
+}
+
+/* Page transition */
+.page-transition-enter {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.page-transition-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.25s ease-out, transform 0.25s ease-out;
+}
+
+/* Line clamp utilities */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
