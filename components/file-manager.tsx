@@ -88,7 +88,6 @@ export default function FileManager({ folderId }: { folderId?: string }) {
     setIsLoading(true);
     setError(null);
     try {
-      // Fetch current folder contents
       let foldersQuery = supabase.from('folders').select('*');
       if (folderId) foldersQuery = foldersQuery.eq('parent_id', folderId);
       else foldersQuery = foldersQuery.is('parent_id', null);
@@ -97,13 +96,8 @@ export default function FileManager({ folderId }: { folderId?: string }) {
       if (folderId) filesQuery = filesQuery.eq('folder_id', folderId);
       else filesQuery = filesQuery.is('folder_id', null);
 
-      // Fetch all folders (for breadcrumbs, dropdown, file counts)
       const allFoldersPromise = supabase.from('folders').select('id, name, parent_id');
-
-      // Fetch all files with content (for search and recent)
       const allFilesPromise = supabase.from('files').select('id, name, folder_id, topic, content, created_at');
-
-      // Fetch recent files (top 5)
       const recentPromise = supabase.from('files')
         .select('id, name, folder_id, topic, content, created_at')
         .order('created_at', { ascending: false })
@@ -130,12 +124,10 @@ export default function FileManager({ folderId }: { folderId?: string }) {
       const mappedFiles = (files || []).map((f: any) => ({ ...f, type: 'file' as const }));
       setItems([...mappedFolders, ...mappedFiles]);
 
-      // Store all folders and files
       setAllFolders(allFData || []);
       setAllFiles(allFiData || []);
       setRecentFiles(recentData || []);
 
-      // Compute file counts per folder
       const counts: Record<string, number> = {};
       (allFiData || []).forEach((f: AllFile) => {
         const fid = f.folder_id || 'root';
@@ -143,7 +135,6 @@ export default function FileManager({ folderId }: { folderId?: string }) {
       });
       setFileCounts(counts);
 
-      // Build breadcrumbs using all folders map (optimized, no N+1)
       if (folderId) {
         const folderMap = new Map((allFData || []).map((f: AllFolder) => [f.id, f]));
         const current = folderMap.get(folderId);
@@ -183,7 +174,6 @@ export default function FileManager({ folderId }: { folderId?: string }) {
     saveViewMode(mode);
   };
 
-  // Search logic
   const isSearching = searchQuery.trim().length > 0;
 
   const filteredItems = isSearching
@@ -200,17 +190,14 @@ export default function FileManager({ folderId }: { folderId?: string }) {
         item.name.toLowerCase().includes(searchQuery.toLowerCase())
       );
 
-  // For search results, show folder location
   const getFileLocation = (fileFolderId: string | null) => {
     if (!fileFolderId) return 'Root';
     const f = allFolders.find((fo) => fo.id === fileFolderId);
     return f ? f.name : 'Unknown';
   };
 
-  // Breadcrumb dropdown siblings
   const getBreadcrumbSiblings = (index: number) => {
     if (index === -1) {
-      // Root level - show root folders
       return allFolders.filter((f) => f.parent_id === null);
     }
     const crumb = breadcrumbs[index];
@@ -226,20 +213,20 @@ export default function FileManager({ folderId }: { folderId?: string }) {
       transition={{ duration: 0.25, ease: 'easeOut' }}
       className="min-h-screen bg-dark-900 flex flex-col"
     >
-      {/* Header */}
+      {/* ===== HEADER - Mobile Responsive ===== */}
       <header className="sticky top-0 z-40 glass border-b border-dark-500/30">
-        <div className="max-w-7xl mx-auto px-4 md:px-8 h-20 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent-blue to-accent-purple flex items-center justify-center">
-              <FileCode size={22} className="text-white" />
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-8 h-auto min-h-[56px] py-2.5 md:h-20 md:py-0 flex items-center justify-between">
+          <div className="flex items-center gap-2.5 md:gap-4 min-w-0">
+            <div className="w-8 h-8 md:w-10 md:h-10 rounded-lg md:rounded-xl bg-gradient-to-br from-accent-blue to-accent-purple flex items-center justify-center flex-shrink-0">
+              <FileCode size={18} className="text-white md:w-[22px] md:h-[22px]" />
             </div>
-            <div>
-              <h1 className="text-lg font-bold text-white tracking-tight">C# Lab Manager</h1>
-              <p className="text-xs text-dark-300">Class Practices & Lab Tasks</p>
+            <div className="min-w-0">
+              <h1 className="text-sm md:text-lg font-bold text-white tracking-tight truncate">C# Lab Manager</h1>
+              <p className="text-[10px] md:text-xs text-dark-300 hidden sm:block">Class Practices & Lab Tasks</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            {/* Search */}
+          <div className="flex items-center gap-1.5 md:gap-3 flex-shrink-0">
+            {/* Search - desktop only */}
             <div className="relative hidden sm:block">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-dark-500" />
               <input
@@ -247,7 +234,7 @@ export default function FileManager({ folderId }: { folderId?: string }) {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search files..."
-                className="pl-9 pr-4 py-2 bg-dark-700/50 border border-dark-500/30 rounded-xl text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-accent-blue w-56"
+                className="pl-9 pr-4 py-2 bg-dark-700/50 border border-dark-500/30 rounded-xl text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-accent-blue w-40 lg:w-56"
               />
               {searchQuery && (
                 <button
@@ -258,7 +245,7 @@ export default function FileManager({ folderId }: { folderId?: string }) {
                 </button>
               )}
             </div>
-            {/* View Toggle */}
+            {/* View Toggle - desktop only */}
             <div className="hidden sm:flex rounded-xl border border-dark-500/30 overflow-hidden">
               <button
                 onClick={() => toggleViewMode('grid')}
@@ -275,14 +262,16 @@ export default function FileManager({ folderId }: { folderId?: string }) {
                 <List size={16} />
               </button>
             </div>
+            {/* Favorites - icon only on mobile */}
             <Link href="/favorites">
-              <button className="hidden sm:flex items-center gap-2 px-3 py-2 text-sm rounded-xl bg-dark-700 hover:bg-dark-600 border border-dark-500/30 text-dark-200 transition-all">
-                <Star size={16} /> Favorites
+              <button className="flex items-center gap-1.5 md:gap-2 px-2 md:px-3 py-2 text-sm rounded-lg md:rounded-xl bg-dark-700 hover:bg-dark-600 border border-dark-500/30 text-dark-200 transition-all" title="Favorites">
+                <Star size={16} /> <span className="hidden md:inline text-xs">Favorites</span>
               </button>
             </Link>
+            {/* Admin - icon only on mobile */}
             <Link href="/admin">
-              <button className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl bg-dark-700 hover:bg-dark-600 border border-dark-500/50 text-dark-200 transition-all">
-                <Shield size={16} /> Admin
+              <button className="flex items-center gap-1.5 md:gap-2 px-2 md:px-4 py-2 text-xs md:text-sm font-medium rounded-lg md:rounded-xl bg-dark-700 hover:bg-dark-600 border border-dark-500/50 text-dark-200 transition-all" title="Admin">
+                <Shield size={16} /> <span className="hidden md:inline">Admin</span>
               </button>
             </Link>
           </div>
@@ -345,7 +334,7 @@ export default function FileManager({ folderId }: { folderId?: string }) {
                 onClick={() => setOpenBreadcrumbDropdown(openBreadcrumbDropdown === i ? null : i)}
                 className={`px-3 py-1.5 rounded-lg hover:bg-dark-700/50 transition-colors flex items-center gap-1 ${i === breadcrumbs.length - 1 ? 'text-white font-medium' : 'hover:text-accent-blue'}`}
               >
-                {b.name}
+                <span className="truncate max-w-[120px] sm:max-w-[200px]">{b.name}</span>
                 <ChevronDown size={12} className={`transition-transform ${openBreadcrumbDropdown === i ? 'rotate-180' : ''}`} />
               </button>
               {openBreadcrumbDropdown === i && (
@@ -371,7 +360,7 @@ export default function FileManager({ folderId }: { folderId?: string }) {
           ))}
         </motion.nav>
 
-        {/* Search in content toggle (only when searching) */}
+        {/* Search in content toggle */}
         {isSearching && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
@@ -394,7 +383,7 @@ export default function FileManager({ folderId }: { folderId?: string }) {
           </motion.div>
         )}
 
-        {/* Recently Added Section (only on home, not searching) */}
+        {/* Recently Added */}
         {!folderId && !isSearching && recentFiles.length > 0 && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
@@ -439,9 +428,9 @@ export default function FileManager({ folderId }: { folderId?: string }) {
         {/* Content */}
         {isLoading ? (
           viewMode === 'grid' ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
+            <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-5">
               {[...Array(6)].map((_, i) => (
-                <div key={i} className="h-40 bg-dark-700/50 rounded-2xl animate-pulse border border-dark-500/30" />
+                <div key={i} className="h-36 md:h-40 bg-dark-700/50 rounded-2xl animate-pulse border border-dark-500/30" />
               ))}
             </div>
           ) : (
@@ -489,7 +478,7 @@ export default function FileManager({ folderId }: { folderId?: string }) {
 
             {viewMode === 'grid' ? (
               <motion.div
-                className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5"
+                className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-5"
                 initial="hidden"
                 animate="visible"
                 variants={{ visible: { transition: { staggerChildren: 0.05 } } }}
@@ -504,30 +493,30 @@ export default function FileManager({ folderId }: { folderId?: string }) {
                       layout
                     >
                       <Link href={item.type === 'folder' ? `/folder/${item.id}` : `/file/${item.id}`}>
-                        <div className="group flex flex-col items-center p-6 rounded-2xl bg-dark-700/40 border border-dark-500/30 hover:border-accent-blue/40 hover:bg-dark-700/80 transition-all cursor-pointer hover-glow relative">
+                        <div className="group flex flex-col items-center p-4 md:p-6 rounded-2xl bg-dark-700/40 border border-dark-500/30 hover:border-accent-blue/40 hover:bg-dark-700/80 transition-all cursor-pointer hover-glow relative">
                           {item.type === 'file' && (
                             <button
                               onClick={(e) => toggleFavorite(e, item.id)}
-                              className={`absolute top-3 right-3 p-1.5 rounded-lg transition-all z-10 ${favorites.includes(item.id) ? 'text-accent-red' : 'text-dark-500 hover:text-accent-red opacity-0 group-hover:opacity-100'}`}
+                              className={`absolute top-2 right-2 md:top-3 md:right-3 p-1.5 rounded-lg transition-all z-10 ${favorites.includes(item.id) ? 'text-accent-red' : 'text-dark-500 hover:text-accent-red opacity-0 group-hover:opacity-100'}`}
                             >
-                              <Heart size={16} className={favorites.includes(item.id) ? 'fill-accent-red' : ''} />
+                              <Heart size={14} className={favorites.includes(item.id) ? 'fill-accent-red md:w-4 md:h-4' : 'md:w-4 md:h-4'} />
                             </button>
                           )}
-                          <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-4 transition-all ${item.type === 'folder' ? 'bg-blue-500/10 group-hover:bg-blue-500/20' : 'bg-orange-500/10 group-hover:bg-orange-500/20'}`}>
+                          <div className={`w-12 h-12 md:w-16 md:h-16 rounded-xl md:rounded-2xl flex items-center justify-center mb-3 md:mb-4 transition-all ${item.type === 'folder' ? 'bg-blue-500/10 group-hover:bg-blue-500/20' : 'bg-orange-500/10 group-hover:bg-orange-500/20'}`}>
                             {item.type === 'folder' ? (
-                              <Folder size={32} className="text-accent-blue group-hover:scale-110 transition-transform" />
+                              <Folder size={26} className="text-accent-blue group-hover:scale-110 transition-transform md:w-8 md:h-8" />
                             ) : (
-                              <FileCode size={32} className="text-accent-orange group-hover:scale-110 transition-transform" />
+                              <FileCode size={26} className="text-accent-orange group-hover:scale-110 transition-transform md:w-8 md:h-8" />
                             )}
                           </div>
-                          <span className="text-sm font-medium text-center truncate w-full text-dark-200 group-hover:text-white transition-colors">{item.name}</span>
+                          <span className="text-xs md:text-sm font-medium text-center truncate w-full text-dark-200 group-hover:text-white transition-colors">{item.name}</span>
                           {item.type === 'folder' && fileCounts[item.id] !== undefined && (
-                            <span className="text-xs text-dark-400 mt-1 bg-dark-600/50 px-2 py-0.5 rounded-full">
+                            <span className="text-[10px] md:text-xs text-dark-400 mt-1 bg-dark-600/50 px-2 py-0.5 rounded-full">
                               {fileCounts[item.id]} file{fileCounts[item.id] !== 1 ? 's' : ''}
                             </span>
                           )}
                           {item.type === 'file' && (
-                            <span className="text-xs text-dark-400 mt-1.5 uppercase tracking-wider">C# File</span>
+                            <span className="text-[10px] md:text-xs text-dark-400 mt-1 md:mt-1.5 uppercase tracking-wider">C# File</span>
                           )}
                           {isSearching && item.type === 'file' && 'folder_id' in item && (
                             <span className="text-[10px] text-dark-500 mt-1">{getFileLocation((item as any).folder_id)}</span>
@@ -539,7 +528,6 @@ export default function FileManager({ folderId }: { folderId?: string }) {
                 </AnimatePresence>
               </motion.div>
             ) : (
-              /* List View */
               <motion.div
                 className="space-y-2"
                 initial="hidden"
@@ -555,12 +543,12 @@ export default function FileManager({ folderId }: { folderId?: string }) {
                       layout
                     >
                       <Link href={item.type === 'folder' ? `/folder/${item.id}` : `/file/${item.id}`}>
-                        <div className="group flex items-center gap-4 p-4 rounded-xl bg-dark-700/30 border border-dark-500/20 hover:border-accent-blue/40 hover:bg-dark-700/60 transition-all cursor-pointer">
-                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${item.type === 'folder' ? 'bg-blue-500/10' : 'bg-orange-500/10'}`}>
+                        <div className="group flex items-center gap-3 md:gap-4 p-3 md:p-4 rounded-xl bg-dark-700/30 border border-dark-500/20 hover:border-accent-blue/40 hover:bg-dark-700/60 transition-all cursor-pointer">
+                          <div className={`w-9 h-9 md:w-10 md:h-10 rounded-lg md:rounded-xl flex items-center justify-center flex-shrink-0 ${item.type === 'folder' ? 'bg-blue-500/10' : 'bg-orange-500/10'}`}>
                             {item.type === 'folder' ? (
-                              <Folder size={20} className="text-accent-blue" />
+                              <Folder size={18} className="text-accent-blue md:w-5 md:h-5" />
                             ) : (
-                              <FileCode size={20} className="text-accent-orange" />
+                              <FileCode size={18} className="text-accent-orange md:w-5 md:h-5" />
                             )}
                           </div>
                           <div className="flex-1 min-w-0">

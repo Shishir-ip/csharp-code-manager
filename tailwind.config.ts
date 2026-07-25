@@ -28,6 +28,9 @@ const config: Config = {
           red: "var(--accent-red)",
         },
       },
+      screens: {
+        xs: "400px",
+      },
       fontFamily: {
         mono: ['"JetBrains Mono"', '"Fira Code"', "monospace"],
         sans: ['"Inter"', "system-ui", "sans-serif"],
