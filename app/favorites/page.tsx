@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { Heart, FileCode, ArrowLeft, Star, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase/client';
+import EmptyState from '@/components/empty-state';
 
 type FileItem = {
   id: string;
@@ -68,55 +69,53 @@ export default function FavoritesPage() {
       className="min-h-screen bg-dark-900"
     >
       <header className="sticky top-0 z-40 glass border-b border-dark-500/30">
-        <div className="max-w-7xl mx-auto px-4 md:px-8 h-20 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+        <div className="max-w-7xl mx-auto px-4 md:px-8 h-auto min-h-[56px] py-2.5 md:h-20 md:py-0 flex items-center justify-between">
+          <div className="flex items-center gap-3 md:gap-4">
             <Link href="/">
-              <button className="p-3 hover:bg-dark-700/50 rounded-xl transition-colors">
-                <ArrowLeft size={22} className="text-dark-300" />
+              <button className="p-2 md:p-3 hover:bg-dark-700/50 rounded-lg md:rounded-xl transition-colors">
+                <ArrowLeft size={20} className="text-dark-300 md:w-[22px] md:h-[22px]" />
               </button>
             </Link>
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent-red to-accent-orange flex items-center justify-center">
-              <Star size={22} className="text-white fill-white" />
+            <div className="w-8 h-8 md:w-10 md:h-10 rounded-lg md:rounded-xl bg-gradient-to-br from-accent-red to-accent-orange flex items-center justify-center">
+              <Star size={18} className="text-white fill-white md:w-5 md:h-5" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-white tracking-tight">Favorites</h1>
-              <p className="text-xs text-dark-300">{files.length} saved file{files.length !== 1 ? 's' : ''}</p>
+              <h1 className="text-sm md:text-lg font-bold text-white tracking-tight">Favorites</h1>
+              <p className="text-[10px] md:text-xs text-dark-300">{files.length} saved file{files.length !== 1 ? 's' : ''}</p>
             </div>
           </div>
           {files.length > 0 && (
             <button
               onClick={clearAll}
-              className="flex items-center gap-2 px-4 py-2 text-sm rounded-xl bg-dark-700 hover:bg-dark-600 border border-dark-500/50 text-dark-200 transition-all"
+              className="flex items-center gap-1.5 md:gap-2 px-2 md:px-4 py-2 text-xs md:text-sm rounded-lg md:rounded-xl bg-dark-700 hover:bg-dark-600 border border-dark-500/50 text-dark-200 transition-all"
             >
-              <Trash2 size={16} /> Clear All
+              <Trash2 size={16} /> <span className="hidden md:inline">Clear All</span>
             </button>
           )}
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-4 md:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 md:px-8 py-6 md:py-8">
         {loading ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
+          <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-5">
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-40 bg-dark-700/50 rounded-2xl animate-pulse border border-dark-500/30" />
+              <div key={i} className="h-36 md:h-40 bg-dark-700/50 rounded-2xl animate-pulse border border-dark-500/30" />
             ))}
           </div>
         ) : files.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-32 text-center">
-            <div className="w-24 h-24 rounded-3xl bg-dark-700/50 flex items-center justify-center mb-5 border border-dark-500/30">
-              <Heart size={44} className="text-dark-400" />
-            </div>
-            <h3 className="text-xl font-semibold text-dark-200 mb-2">No favorites yet</h3>
-            <p className="text-base text-dark-400 mb-8">Click the heart icon on any file to save it here.</p>
-            <Link href="/">
-              <button className="flex items-center gap-2 px-6 py-3 bg-accent-blue hover:bg-blue-500 text-white rounded-xl text-base font-medium transition-all">
-                Browse Files
-              </button>
-            </Link>
-          </div>
+          <EmptyState
+            type="favorites"
+            action={
+              <Link href="/">
+                <button className="flex items-center gap-2 px-6 py-3 bg-accent-blue hover:bg-blue-500 text-white rounded-xl text-base font-medium transition-all">
+                  Browse Files
+                </button>
+              </Link>
+            }
+          />
         ) : (
           <motion.div
-            className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5"
+            className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-5"
             initial="hidden"
             animate="visible"
             variants={{ visible: { transition: { staggerChildren: 0.05 } } }}
@@ -128,19 +127,19 @@ export default function FavoritesPage() {
                 whileHover={{ scale: 1.03, y: -4 }}
                 whileTap={{ scale: 0.97 }}
               >
-                <div className="group flex flex-col items-center p-6 rounded-2xl bg-dark-700/40 border border-dark-500/30 hover:border-accent-red/40 hover:bg-dark-700/80 transition-all cursor-pointer hover-glow relative">
+                <div className="group flex flex-col items-center p-4 md:p-6 rounded-2xl bg-dark-700/40 border border-dark-500/30 hover:border-accent-red/40 hover:bg-dark-700/80 transition-all cursor-pointer hover-glow relative">
                   <button
                     onClick={() => removeFavorite(file.id)}
-                    className="absolute top-3 right-3 p-1.5 rounded-lg text-accent-red hover:text-red-400 transition-all z-10"
+                    className="absolute top-2 right-2 md:top-3 md:right-3 p-1.5 rounded-lg text-accent-red hover:text-red-400 transition-all z-10"
                   >
-                    <Heart size={16} className="fill-accent-red" />
+                    <Heart size={16} className="fill-accent-red md:w-4 md:h-4" />
                   </button>
                   <Link href={`/file/${file.id}`} className="flex flex-col items-center w-full">
-                    <div className="w-16 h-16 rounded-2xl bg-orange-500/10 group-hover:bg-orange-500/20 flex items-center justify-center mb-4 transition-all">
-                      <FileCode size={32} className="text-accent-orange group-hover:scale-110 transition-transform" />
+                    <div className="w-12 h-12 md:w-16 md:h-16 rounded-xl md:rounded-2xl bg-orange-500/10 group-hover:bg-orange-500/20 flex items-center justify-center mb-3 md:mb-4 transition-all">
+                      <FileCode size={26} className="text-accent-orange group-hover:scale-110 transition-transform md:w-8 md:h-8" />
                     </div>
-                    <span className="text-sm font-medium text-center truncate w-full text-dark-200 group-hover:text-white transition-colors">{file.name}</span>
-                    <span className="text-xs text-dark-400 mt-1.5 text-center truncate w-full">{file.topic || 'C# File'}</span>
+                    <span className="text-xs md:text-sm font-medium text-center truncate w-full text-dark-200 group-hover:text-white transition-colors">{file.name}</span>
+                    <span className="text-[10px] md:text-xs text-dark-400 mt-1 md:mt-1.5 text-center truncate w-full">{file.topic || 'C# File'}</span>
                   </Link>
                 </div>
               </motion.div>

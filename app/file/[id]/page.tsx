@@ -6,13 +6,14 @@ import { Copy, Play, X, Terminal, ArrowLeft, Zap, MousePointerClick, Check, Send
 import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase/client';
 import Link from 'next/link';
+import SkeletonCode from '@/components/skeleton-code';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 // Lazy-load syntax highlighter component to reduce bundle size
 const SyntaxHighlighter = dynamic(
   () => import('react-syntax-highlighter').then((mod) => mod.Prism),
-  { ssr: false, loading: () => <div className="p-8 text-dark-400 animate-pulse">Loading code viewer...</div> }
+  { ssr: false, loading: () => <SkeletonCode /> }
 );
 
 type FileData = {
@@ -432,7 +433,7 @@ export default function FilePage() {
               {file.content}
             </SyntaxHighlighter>
           ) : (
-            <div className="p-8 bg-dark-800 text-dark-400 animate-pulse">Loading syntax highlighter...</div>
+            <SkeletonCode />
           )}
         </motion.div>
 

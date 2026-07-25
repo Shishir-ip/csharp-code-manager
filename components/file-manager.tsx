@@ -1,9 +1,10 @@
 'use client';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Folder, FileCode, ChevronRight, Home, Shield, Search, Grid3X3, List, Heart, Clock, ChevronDown, X, Star } from 'lucide-react';
+import { Folder, FileCode, ChevronRight, Home, Shield, Search, Grid3X3, List, Heart, Clock, ChevronDown, X, Star, Plus, ArrowUp, Copy, Check } from 'lucide-react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase/client';
+import EmptyState from './empty-state';
 
 type Item = {
   id: string;
@@ -50,6 +51,78 @@ function saveViewMode(mode: ViewMode) {
   if (typeof window !== 'undefined') localStorage.setItem('viewMode', mode);
 }
 
+// --- SwipeableListItem (extracted outside to prevent re-mounts) ---
+function SwipeableListItem({
+  item,
+  isFav,
+  onToggleFav,
+  onCopy,
+  copiedNow,
+  children,
+}: {
+  item: Item;
+  isFav: boolean;
+  onToggleFav: (e: React.MouseEvent) => void;
+  onCopy?: (e: React.MouseEvent) => void;
+  copiedNow: boolean;
+  children: React.ReactNode;
+}) {
+  const [swipeX, setSwipeX] = useState(0);
+  const startX = useRef(0);
+  const isSwiping = useRef(false);
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    startX.current = e.touches[0].clientX;
+    isSwiping.current = true;
+  };
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (!isSwiping.current) return;
+    const dx = e.touches[0].clientX - startX.current;
+    if (dx < 0 && dx > -140) setSwipeX(dx);
+    else if (dx > 0 && dx < 20) setSwipeX(dx);
+  };
+  const onTouchEnd = () => {
+    isSwiping.current = false;
+    if (swipeX < -60) setSwipeX(-100);
+    else setSwipeX(0);
+  };
+
+  return (
+    <div className="relative overflow-hidden rounded-xl" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+      {/* Action buttons behind */}
+      <div className="absolute inset-y-0 right-0 flex items-center gap-1 pr-2">
+        {item.type === 'file' && (
+          <>
+            <button
+              onClick={onToggleFav}
+              className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${isFav ? 'bg-accent-red/20 text-accent-red' : 'bg-dark-600 text-dark-300'}`}
+            >
+              <Heart size={18} className={isFav ? 'fill-accent-red' : ''} />
+            </button>
+            {onCopy && (
+              <button
+                onClick={onCopy}
+                className="w-12 h-12 rounded-xl bg-dark-600 text-dark-300 flex items-center justify-center"
+              >
+                {copiedNow ? <Check size={18} className="text-accent-green" /> : <Copy size={18} />}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+      {/* Content slides */}
+      <motion.div
+        animate={{ x: swipeX }}
+        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+        className="relative z-10"
+        onClick={() => setSwipeX(0)}
+      >
+        {children}
+      </motion.div>
+    </div>
+  );
+}
+
 export default function FileManager({ folderId }: { folderId?: string }) {
   const [items, setItems] = useState<Item[]>([]);
   const [allFolders, setAllFolders] = useState<AllFolder[]>([]);
@@ -64,7 +137,14 @@ export default function FileManager({ folderId }: { folderId?: string }) {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recentFiles, setRecentFiles] = useState<AllFile[]>([]);
   const [openBreadcrumbDropdown, setOpenBreadcrumbDropdown] = useState<number | null>(null);
+  const [showSearchOverlay, setShowSearchOverlay] = useState(false);
+  const [fabOpen, setFabOpen] = useState(false);
+  const [pullRefreshing, setPullRefreshing] = useState(false);
+  const [pullOffset, setPullOffset] = useState(0);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const pullStartY = useRef(0);
+  const pullActive = useRef(false);
 
   // Load persisted preferences
   useEffect(() => {
@@ -101,7 +181,7 @@ export default function FileManager({ folderId }: { folderId?: string }) {
       const recentPromise = supabase.from('files')
         .select('id, name, folder_id, topic, content, created_at')
         .order('created_at', { ascending: false })
-        .limit(5);
+        .limit(10);
 
       const [
         { data: folders, error: fError },
@@ -159,6 +239,34 @@ export default function FileManager({ folderId }: { folderId?: string }) {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // Pull-to-refresh touch handlers
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (window.scrollY > 5) return;
+    pullStartY.current = e.touches[0].clientY;
+    pullActive.current = true;
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!pullActive.current) return;
+    const dy = e.touches[0].clientY - pullStartY.current;
+    if (dy > 0 && dy < 120 && window.scrollY <= 0) {
+      setPullOffset(dy * 0.5);
+      e.preventDefault();
+    }
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    if (!pullActive.current) return;
+    pullActive.current = false;
+    if (pullOffset > 50) {
+      setPullRefreshing(true);
+      setPullOffset(0);
+      fetchData().then(() => setPullRefreshing(false));
+    } else {
+      setPullOffset(0);
+    }
+  }, [pullOffset, fetchData]);
+
   const toggleFavorite = (e: React.MouseEvent, id: string) => {
     e.preventDefault();
     e.stopPropagation();
@@ -167,6 +275,15 @@ export default function FileManager({ folderId }: { folderId?: string }) {
       : [...favorites, id];
     setFavorites(newFavs);
     saveFavorites(newFavs);
+  };
+
+  const handleCopyFile = async (e: React.MouseEvent, id: string, content?: string | null) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!content) return;
+    await navigator.clipboard.writeText(content);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 1500);
   };
 
   const toggleViewMode = (mode: ViewMode) => {
@@ -212,7 +329,34 @@ export default function FileManager({ folderId }: { folderId?: string }) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, ease: 'easeOut' }}
       className="min-h-screen bg-dark-900 flex flex-col"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
     >
+      {/* Pull-to-refresh indicator */}
+      <AnimatePresence>
+        {(pullOffset > 0 || pullRefreshing) && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1, height: pullRefreshing ? 56 : pullOffset }}
+            exit={{ opacity: 0, height: 0 }}
+            className="flex items-center justify-center text-accent-blue overflow-hidden"
+          >
+            {pullRefreshing ? (
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 border-2 border-accent-blue border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm">Refreshing...</span>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center">
+                <ArrowUp size={18} style={{ transform: `rotate(${(pullOffset / 60) * 180}deg)` }} />
+                <span className="text-xs mt-0.5">{pullOffset > 50 ? 'Release to refresh' : 'Pull to refresh'}</span>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ===== HEADER - Mobile Responsive ===== */}
       <header className="sticky top-0 z-40 glass border-b border-dark-500/30">
         <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-8 h-auto min-h-[56px] py-2.5 md:h-20 md:py-0 flex items-center justify-between">
@@ -226,7 +370,7 @@ export default function FileManager({ folderId }: { folderId?: string }) {
             </div>
           </div>
           <div className="flex items-center gap-1.5 md:gap-3 flex-shrink-0">
-            {/* Search - desktop only */}
+            {/* Search - desktop inline */}
             <div className="relative hidden sm:block">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-dark-500" />
               <input
@@ -245,6 +389,14 @@ export default function FileManager({ folderId }: { folderId?: string }) {
                 </button>
               )}
             </div>
+            {/* Mobile search icon opens overlay */}
+            <button
+              onClick={() => setShowSearchOverlay(true)}
+              className="sm:hidden p-2.5 rounded-xl bg-dark-700 hover:bg-dark-600 border border-dark-500/30 text-dark-200 transition-all"
+              title="Search"
+            >
+              <Search size={18} />
+            </button>
             {/* View Toggle - desktop only */}
             <div className="hidden sm:flex rounded-xl border border-dark-500/30 overflow-hidden">
               <button
@@ -278,26 +430,79 @@ export default function FileManager({ folderId }: { folderId?: string }) {
         </div>
       </header>
 
-      {/* Mobile search */}
-      <div className="sm:hidden px-4 pt-4">
-        <div className="relative">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-dark-500" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search files..."
-            className="w-full pl-9 pr-4 py-2.5 bg-dark-700/50 border border-dark-500/30 rounded-xl text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:border-accent-blue"
-          />
-        </div>
-      </div>
+      {/* ===== MOBILE SEARCH OVERLAY ===== */}
+      <AnimatePresence>
+        {showSearchOverlay && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] bg-dark-900 flex flex-col sm:hidden"
+          >
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-dark-500/30">
+              <Search size={18} className="text-dark-500 flex-shrink-0" />
+              <input
+                autoFocus
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search files, topics, code..."
+                className="flex-1 bg-transparent text-base text-dark-100 placeholder-dark-500 outline-none"
+              />
+              <button onClick={() => { setShowSearchOverlay(false); setSearchQuery(''); }} className="text-dark-400 hover:text-white p-1">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="px-4 py-3 border-b border-dark-500/20 flex items-center gap-3">
+              <input
+                type="checkbox"
+                id="searchContentMobile"
+                checked={searchInContent}
+                onChange={(e) => setSearchInContent(e.target.checked)}
+                className="w-4 h-4 rounded border-dark-500 bg-dark-900 text-accent-blue"
+              />
+              <label htmlFor="searchContentMobile" className="text-sm text-dark-300">Search inside code content</label>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              {searchQuery.trim() ? (
+                <>
+                  <p className="text-xs text-dark-500 mb-3">{filteredItems.length} result{filteredItems.length !== 1 ? 's' : ''}</p>
+                  {filteredItems.map((item) => (
+                    <Link
+                      key={item.id}
+                      href={item.type === 'folder' ? `/folder/${item.id}` : `/file/${item.id}`}
+                      onClick={() => setShowSearchOverlay(false)}
+                    >
+                      <div className="flex items-center gap-3 p-3 rounded-xl bg-dark-700/30 border border-dark-500/20 mb-2">
+                        {item.type === 'folder' ? <Folder size={18} className="text-accent-blue flex-shrink-0" /> : <FileCode size={18} className="text-accent-orange flex-shrink-0" />}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-dark-200 truncate">{item.name}</p>
+                          {item.type === 'file' && 'folder_id' in item && (
+                            <p className="text-xs text-dark-500">{getFileLocation((item as any).folder_id)}</p>
+                          )}
+                        </div>
+                        <ChevronRight size={16} className="text-dark-500 flex-shrink-0" />
+                      </div>
+                    </Link>
+                  ))}
+                </>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-20 text-center">
+                  <Search size={40} className="text-dark-600 mb-3" />
+                  <p className="text-dark-400 text-sm">Type to search files, topics, or code content</p>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      <div className="max-w-7xl mx-auto px-4 md:px-8 py-8 flex-1">
+      <div className="max-w-7xl mx-auto px-4 md:px-8 py-6 md:py-8 flex-1 w-full">
         {/* Breadcrumbs with dropdown */}
         <motion.nav
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-center gap-2 text-sm text-dark-300 mb-8 flex-wrap relative"
+          className="flex items-center gap-2 text-sm text-dark-300 mb-6 md:mb-8 flex-wrap relative"
           ref={dropdownRef}
         >
           <button
@@ -360,7 +565,7 @@ export default function FileManager({ folderId }: { folderId?: string }) {
           ))}
         </motion.nav>
 
-        {/* Search in content toggle */}
+        {/* Search in content toggle (desktop) */}
         {isSearching && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
@@ -383,24 +588,26 @@ export default function FileManager({ folderId }: { folderId?: string }) {
           </motion.div>
         )}
 
-        {/* Recently Added */}
+        {/* Recently Added - Horizontal Scroll Snap Carousel */}
         {!folderId && !isSearching && recentFiles.length > 0 && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-10"
+            className="mb-8 md:mb-10"
           >
-            <div className="flex items-center gap-2 mb-4">
+            <div className="flex items-center gap-2 mb-3 md:mb-4">
               <Clock size={18} className="text-accent-blue" />
               <h2 className="text-base font-semibold text-white">Recently Added</h2>
+              <span className="text-xs text-dark-500 ml-auto">{recentFiles.length} files</span>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+            <div className="flex gap-3 overflow-x-auto snap-x snap-mandatory pb-2 -mx-4 px-4 md:-mx-8 md:px-8 scrollbar-hide">
               {recentFiles.map((file) => (
                 <motion.div
                   key={file.id}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   whileHover={{ scale: 1.02, y: -2 }}
+                  className="snap-start flex-shrink-0 w-[280px] sm:w-[320px]"
                 >
                   <Link href={`/file/${file.id}`}>
                     <div className="group flex items-center gap-3 p-4 rounded-xl bg-dark-700/30 border border-dark-500/20 hover:border-accent-blue/40 hover:bg-dark-700/60 transition-all hover-glow">
@@ -446,28 +653,18 @@ export default function FileManager({ folderId }: { folderId?: string }) {
             <button onClick={fetchData} className="px-6 py-3 bg-accent-blue text-white rounded-xl text-base">Try Again</button>
           </div>
         ) : filteredItems.length === 0 ? (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="flex flex-col items-center justify-center py-32 text-center"
-          >
-            <div className="w-24 h-24 rounded-3xl bg-dark-700/50 flex items-center justify-center mb-5 border border-dark-500/30">
-              <Search size={44} className="text-dark-400" />
-            </div>
-            <h3 className="text-xl font-semibold text-dark-200 mb-2">
-              {isSearching ? 'No results found' : 'This folder is empty'}
-            </h3>
-            <p className="text-base text-dark-400 mb-8">
-              {isSearching ? 'Try a different search term' : 'No folders or files found here.'}
-            </p>
-            {!isSearching && (
-              <Link href="/admin">
-                <button className="flex items-center gap-2 px-6 py-3 bg-accent-blue hover:bg-blue-500 text-white rounded-xl text-base font-medium transition-all">
-                  Go to Admin
-                </button>
-              </Link>
-            )}
-          </motion.div>
+          <EmptyState
+            type={isSearching ? 'search' : 'folder'}
+            action={
+              !isSearching ? (
+                <Link href="/admin">
+                  <button className="flex items-center gap-2 px-6 py-3 bg-accent-blue hover:bg-blue-500 text-white rounded-xl text-base font-medium transition-all">
+                    Go to Admin
+                  </button>
+                </Link>
+              ) : undefined
+            }
+          />
         ) : (
           <>
             {isSearching && (
@@ -536,44 +733,52 @@ export default function FileManager({ folderId }: { folderId?: string }) {
               >
                 <AnimatePresence>
                   {filteredItems.map((item) => (
-                    <motion.div
+                    <SwipeableListItem
                       key={item.id}
-                      variants={{ hidden: { opacity: 0, x: -10 }, visible: { opacity: 1, x: 0 } }}
-                      whileHover={{ x: 4 }}
-                      layout
+                      item={item}
+                      isFav={favorites.includes(item.id)}
+                      onToggleFav={(e) => toggleFavorite(e, item.id)}
+                      onCopy={item.type === 'file' && 'content' in item && item.content ? (e) => handleCopyFile(e, item.id, item.content) : undefined}
+                      copiedNow={copiedId === item.id}
                     >
-                      <Link href={item.type === 'folder' ? `/folder/${item.id}` : `/file/${item.id}`}>
-                        <div className="group flex items-center gap-3 md:gap-4 p-3 md:p-4 rounded-xl bg-dark-700/30 border border-dark-500/20 hover:border-accent-blue/40 hover:bg-dark-700/60 transition-all cursor-pointer">
-                          <div className={`w-9 h-9 md:w-10 md:h-10 rounded-lg md:rounded-xl flex items-center justify-center flex-shrink-0 ${item.type === 'folder' ? 'bg-blue-500/10' : 'bg-orange-500/10'}`}>
-                            {item.type === 'folder' ? (
-                              <Folder size={18} className="text-accent-blue md:w-5 md:h-5" />
-                            ) : (
-                              <FileCode size={18} className="text-accent-orange md:w-5 md:h-5" />
+                      <motion.div
+                        variants={{ hidden: { opacity: 0, x: -10 }, visible: { opacity: 1, x: 0 } }}
+                        whileHover={{ x: 4 }}
+                        layout
+                      >
+                        <Link href={item.type === 'folder' ? `/folder/${item.id}` : `/file/${item.id}`}>
+                          <div className="group flex items-center gap-3 md:gap-4 p-3 md:p-4 rounded-xl bg-dark-700/30 border border-dark-500/20 hover:border-accent-blue/40 hover:bg-dark-700/60 transition-all cursor-pointer">
+                            <div className={`w-9 h-9 md:w-10 md:h-10 rounded-lg md:rounded-xl flex items-center justify-center flex-shrink-0 ${item.type === 'folder' ? 'bg-blue-500/10' : 'bg-orange-500/10'}`}>
+                              {item.type === 'folder' ? (
+                                <Folder size={18} className="text-accent-blue md:w-5 md:h-5" />
+                              ) : (
+                                <FileCode size={18} className="text-accent-orange md:w-5 md:h-5" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-dark-200 group-hover:text-white transition-colors truncate">{item.name}</p>
+                              <p className="text-xs text-dark-500 truncate">
+                                {item.type === 'folder'
+                                  ? `${fileCounts[item.id] || 0} file${(fileCounts[item.id] || 0) !== 1 ? 's' : ''}`
+                                  : (item.topic || 'C# File')}
+                              </p>
+                            </div>
+                            {isSearching && item.type === 'file' && 'folder_id' in item && (
+                              <span className="text-xs text-dark-500 hidden sm:block">{getFileLocation((item as any).folder_id)}</span>
                             )}
+                            {item.type === 'file' && (
+                              <button
+                                onClick={(e) => toggleFavorite(e, item.id)}
+                                className={`p-2 rounded-lg transition-all flex-shrink-0 hidden sm:flex ${favorites.includes(item.id) ? 'text-accent-red' : 'text-dark-500 hover:text-accent-red opacity-0 group-hover:opacity-100'}`}
+                              >
+                                <Heart size={16} className={favorites.includes(item.id) ? 'fill-accent-red' : ''} />
+                              </button>
+                            )}
+                            <ChevronRight size={16} className="text-dark-500 flex-shrink-0" />
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-dark-200 group-hover:text-white transition-colors truncate">{item.name}</p>
-                            <p className="text-xs text-dark-500 truncate">
-                              {item.type === 'folder'
-                                ? `${fileCounts[item.id] || 0} file${(fileCounts[item.id] || 0) !== 1 ? 's' : ''}`
-                                : (item.topic || 'C# File')}
-                            </p>
-                          </div>
-                          {isSearching && item.type === 'file' && 'folder_id' in item && (
-                            <span className="text-xs text-dark-500 hidden sm:block">{getFileLocation((item as any).folder_id)}</span>
-                          )}
-                          {item.type === 'file' && (
-                            <button
-                              onClick={(e) => toggleFavorite(e, item.id)}
-                              className={`p-2 rounded-lg transition-all flex-shrink-0 ${favorites.includes(item.id) ? 'text-accent-red' : 'text-dark-500 hover:text-accent-red opacity-0 group-hover:opacity-100'}`}
-                            >
-                              <Heart size={16} className={favorites.includes(item.id) ? 'fill-accent-red' : ''} />
-                            </button>
-                          )}
-                          <ChevronRight size={16} className="text-dark-500 flex-shrink-0" />
-                        </div>
-                      </Link>
-                    </motion.div>
+                        </Link>
+                      </motion.div>
+                    </SwipeableListItem>
                   ))}
                 </AnimatePresence>
               </motion.div>
@@ -581,6 +786,47 @@ export default function FileManager({ folderId }: { folderId?: string }) {
           </>
         )}
       </div>
+
+      {/* ===== FLOATING ACTION BUTTON (Home only) ===== */}
+      {!folderId && (
+        <div className="fixed bottom-20 sm:bottom-8 right-4 sm:right-8 z-40">
+          <AnimatePresence>
+            {fabOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: 10, scale: 0.9 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.9 }}
+                className="absolute bottom-14 right-0 flex flex-col gap-2 items-end mb-2"
+              >
+                <Link href="/admin">
+                  <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-dark-700 border border-dark-500/30 text-dark-200 text-sm shadow-lg hover:bg-dark-600 transition-colors">
+                    <Shield size={16} /> Admin Panel
+                  </button>
+                </Link>
+                <button
+                  onClick={() => { setFabOpen(false); setShowSearchOverlay(true); }}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-dark-700 border border-dark-500/30 text-dark-200 text-sm shadow-lg hover:bg-dark-600 transition-colors"
+                >
+                  <Search size={16} /> Search Files
+                </button>
+                <Link href="/favorites">
+                  <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-dark-700 border border-dark-500/30 text-dark-200 text-sm shadow-lg hover:bg-dark-600 transition-colors">
+                    <Star size={16} /> Favorites
+                  </button>
+                </Link>
+              </motion.div>
+            )}
+          </AnimatePresence>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setFabOpen(!fabOpen)}
+            className={`w-14 h-14 rounded-full shadow-xl shadow-black/30 flex items-center justify-center transition-colors ${fabOpen ? 'bg-accent-red rotate-45' : 'bg-accent-blue'}`}
+          >
+            <Plus size={24} className="text-white" />
+          </motion.button>
+        </div>
+      )}
     </motion.div>
   );
 }
